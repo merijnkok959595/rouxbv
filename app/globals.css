@@ -1,0 +1,27 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #F7F6F3;
+  --surface:  #FFFFFF;
+  --border:   #E8E6E0;
+  --text:     #100D1E;
+  --muted:    #6B7280;
+  --subtle:   #9CA3AF;
+  --active:   #F3F2EF;
+  --brand:    #6366F1;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+input, textarea, select, button {
+  font-family: inherit;
+}
+
+@keyframes spin    { to { transform: rotate(360deg) } }
+@keyframes pulse   { 0%,100% { opacity:1 } 50% { opacity:.4 } }
