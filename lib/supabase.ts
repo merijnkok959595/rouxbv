@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url  = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const svc  = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-export const supabase     = createClient(url, anon)
-export const adminSupabase = () => createClient(url, svc)
+export function adminSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const svc = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !svc) throw new Error('Supabase env not configured')
+  return createClient(url, svc)
+}

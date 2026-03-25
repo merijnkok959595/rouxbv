@@ -79,7 +79,14 @@ export default function FormulierPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Fout bij opslaan')
 
-      setSavedContact({ id: data.id, assigned_to: data.assigned_to, source, ...body, contact_type: body.status || 'lead', opening_hours: openingHours })
+      const { status: formStatus, channel: _ch, ...contactFields } = body
+      setSavedContact({
+        ...contactFields,
+        id: data.id,
+        assigned_to: data.assigned_to,
+        contact_type: formStatus || 'lead',
+        opening_hours: openingHours,
+      })
       formRef.current.reset()
       setAddress(''); setCity(''); setPostcode(''); setCountry(''); setOpeningHours(null)
 
