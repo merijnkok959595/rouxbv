@@ -98,6 +98,15 @@ export default function SuusPage() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
 
+  // Scroll to bottom when keyboard opens on mobile (visualViewport resize)
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const onResize = () => { bottomRef.current?.scrollIntoView({ behavior: 'instant' }) }
+    vv.addEventListener('resize', onResize)
+    return () => vv.removeEventListener('resize', onResize)
+  }, [])
+
   useEffect(() => {
     if (!attachOpen) return
     const h = (e: MouseEvent) => {
@@ -445,7 +454,7 @@ export default function SuusPage() {
 
   /* ── Render ───────────────────────────────────────────────────── */
   return (
-    <div className="flex flex-col bg-bg" style={{ height: 'calc(100vh - 80px)' }}>
+    <div className="flex flex-col bg-bg" style={{ height: 'calc(100dvh - 80px)' }}>
 
 
       {/* ── Contact form modal ───────────────────────────────────── */}
@@ -696,9 +705,13 @@ export default function SuusPage() {
                 value={input}
                 onChange={e => { setInput(e.target.value); resizeTextarea() }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input, pendingImage?.base64) } }}
-              placeholder="Vraag SUUS iets..."
-              rows={1}
-              className="flex-1 resize-none border-none bg-transparent text-[16px] text-primary outline-none leading-[1.55] max-h-40 overflow-y-auto p-0 font-[inherit] placeholder:text-muted"
+                placeholder="Vraag SUUS iets..."
+                rows={1}
+                enterKeyHint="send"
+                autoComplete="off"
+                autoCorrect="on"
+                spellCheck={false}
+                className="flex-1 resize-none border-none bg-transparent text-[16px] text-primary outline-none leading-[1.55] max-h-40 overflow-y-auto p-0 font-[inherit] placeholder:text-muted"
               />
 
               {/* Right icons */}
