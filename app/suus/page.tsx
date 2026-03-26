@@ -31,42 +31,10 @@ type Msg = {
   contactsData?: ContactCardData[]
 }
 
-function OrbAvatar({ agentState }: { agentState: AgentState }) {
-  const active = agentState === 'talking'
-  const listening = agentState === 'listening'
-  return (
-    <div className="w-[26px] h-[26px] rounded-[6px] flex-shrink-0 mt-px flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600 overflow-hidden">
-      <div className="flex items-end gap-[2px]">
-        {[5, 9, 7, 11, 6].map((h, i) => (
-          <div
-            key={i}
-            className={cn(
-              'w-[2px] rounded-full bg-white/90',
-              active ? 'animate-wave-agent' : listening ? 'animate-wave-user' : '',
-            )}
-            style={{
-              height: active || listening ? h : 3,
-              animationDelay: `${i * 0.1}s`,
-              transition: 'height 0.3s ease',
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
 
 function TypingDots() {
   return (
-    <div className="flex gap-1 items-center py-1">
-      {[0, 150, 300].map(delay => (
-        <div
-          key={delay}
-          className="w-1.5 h-1.5 rounded-full bg-muted animate-dot-bounce"
-          style={{ animationDelay: `${delay}ms` }}
-        />
-      ))}
-    </div>
+    <span className="inline-block w-2 h-[1.1em] bg-primary rounded-[2px] align-middle animate-[thinkPulse_1s_ease-in-out_infinite] opacity-80" />
   )
 }
 
@@ -104,6 +72,10 @@ export default function SuusPage() {
   const [transcribingVoice, setTranscribingVoice] = useState(false)
   const dictRecorderRef  = useRef<MediaRecorder | null>(null)
   const dictChunksRef    = useRef<Blob[]>([])
+  const dictAnalyserRef  = useRef<AnalyserNode | null>(null)
+  const dictAudioCtxRef  = useRef<AudioContext | null>(null)
+  const dictAnimFrameRef = useRef<number>(0)
+  const dictBarsRef      = useRef<(HTMLDivElement | null)[]>([])
 
   const { activeEmployee } = useEmployee()
   const imageInputRef    = useRef<HTMLInputElement>(null)
@@ -133,14 +105,48 @@ export default function SuusPage() {
     el.style.height = Math.min(el.scrollHeight, 160) + 'px'
   }
 
+  function stopDictVisualizer() {
+    cancelAnimationFrame(dictAnimFrameRef.current)
+    dictAnalyserRef.current = null
+    dictAudioCtxRef.current?.close()
+    dictAudioCtxRef.current = null
+  }
+
   async function startDictate() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+
+      // Set up real audio visualizer
+      const audioCtx = new AudioContext()
+      dictAudioCtxRef.current = audioCtx
+      const source = audioCtx.createMediaStreamSource(stream)
+      const analyser = audioCtx.createAnalyser()
+      analyser.fftSize = 128
+      analyser.smoothingTimeConstant = 0.75
+      source.connect(analyser)
+      dictAnalyserRef.current = analyser
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+
+      function drawBars() {
+        if (!dictAnalyserRef.current) return
+        dictAnalyserRef.current.getByteFrequencyData(dataArray)
+        const bars = dictBarsRef.current
+        for (let i = 0; i < bars.length; i++) {
+          const bar = bars[i]; if (!bar) continue
+          const binIndex = Math.min(Math.floor((i / bars.length) * dataArray.length), dataArray.length - 1)
+          const value = dataArray[binIndex] / 255
+          bar.style.height = `${3 + value * 30}px`
+        }
+        dictAnimFrameRef.current = requestAnimationFrame(drawBars)
+      }
+      drawBars()
+
       const mr = new MediaRecorder(stream)
       dictChunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) dictChunksRef.current.push(e.data) }
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
+        stopDictVisualizer()
         const blob = new Blob(dictChunksRef.current, { type: 'audio/webm' })
         setTranscribingVoice(true)
         try {
@@ -174,6 +180,7 @@ export default function SuusPage() {
       dictRecorderRef.current.stop()
       dictRecorderRef.current = null
     }
+    stopDictVisualizer()
     dictChunksRef.current = []
     setDictating(false)
     setTranscribingVoice(false)
@@ -458,11 +465,11 @@ export default function SuusPage() {
 
       {/* ── Message feed ─────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
-        <div className="max-w-[720px] mx-auto px-4 pt-6 pb-4 flex flex-col max-sm:px-3 relative">
+        <div className="max-w-[720px] mx-auto px-4 pt-14 pb-4 flex flex-col max-sm:px-3 relative">
 
           {/* Handsfree button — top-right inside chat width, always visible */}
           {!calling && (
-            <div className="absolute top-4 right-4 max-sm:right-3 z-10">
+            <div className="absolute top-4 right-4 max-sm:right-3 z-10 mb-4">
               <button
                 onClick={toggleCall}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-[12px] font-medium rounded-full hover:opacity-85 transition-opacity"
@@ -500,9 +507,9 @@ export default function SuusPage() {
           {msgs.map((m, i) => (
             <div key={i} className="py-1.5 animate-msg-in">
               {m.role === 'user' ? (
-                /* User bubble */
+                /* User message */
                 <div className="flex justify-end">
-                  <div className="bg-active text-primary rounded-[18px_18px_4px_18px] px-3.5 py-2.5 text-sm leading-relaxed max-w-[75%] whitespace-pre-wrap break-words max-sm:max-w-[85%]">
+                  <div className="text-[14.5px] leading-[1.7] text-[#0d0d0d] max-w-[75%] whitespace-pre-wrap break-words max-sm:max-w-[85%] bg-white px-4 py-2.5 rounded-2xl">
                     {m.image_url && (
                       <img src={m.image_url} alt="bijlage" className="max-w-[200px] max-h-[150px] rounded-lg object-cover block mb-1.5" />
                     )}
@@ -512,12 +519,15 @@ export default function SuusPage() {
               ) : (
                 /* AI row */
                 <div className="flex gap-3 items-start">
-                  <OrbAvatar agentState={m.streaming ? 'talking' : null} />
                   <div className="flex-1 min-w-0 pt-0.5">
-                    {m.streaming && !m.text && <TypingDots />}
-                    {m.text && (
-                      <p className="text-sm leading-[1.65] text-primary whitespace-pre-wrap break-words">{m.text}</p>
-                    )}
+                    {m.text ? (
+                      <p className="text-[14.5px] leading-[1.7] text-[#0d0d0d] whitespace-pre-wrap break-words">
+                        {m.text}
+                        {m.streaming && <TypingDots />}
+                      </p>
+                    ) : m.streaming ? (
+                      <TypingDots />
+                    ) : null}
                     {(m.briefingData || m.formData || (m.contactsData && m.contactsData.length > 0)) && (
                       <div className="mt-2.5 flex flex-col gap-2">
                         {m.briefingData && <BriefingCard data={m.briefingData} />}
@@ -588,17 +598,15 @@ export default function SuusPage() {
             <div className="flex items-center gap-3 px-4 py-4 border border-border rounded-[28px] bg-surface shadow-[0_2px_12px_rgba(0,0,0,.07),0_0_0_1px_rgba(0,0,0,.03)]">
               {/* Waveform */}
               <div className="flex-1 flex items-center justify-center gap-[3px] h-9 overflow-hidden">
-                {[4,7,12,18,24,20,14,9,16,22,26,20,12,7,4,9,16,22,18,12,7,4,9,16,22,26,20,14,9,4,7,14,20,24,18,12,7,4,9,16,20,15,11,7,4,9,14,9].map((h, i) => (
+                {Array.from({ length: 48 }, (_, i) => (
                   <div
                     key={i}
+                    ref={el => { dictBarsRef.current[i] = el }}
                     className={cn(
-                      'w-[3px] rounded-full origin-center transition-all',
-                      transcribingVoice ? 'bg-muted/40' : 'bg-primary animate-dict-wave',
+                      'w-[3px] rounded-full origin-center transition-[height] duration-75',
+                      transcribingVoice ? 'bg-muted/40' : 'bg-primary',
                     )}
-                    style={{
-                      height: `${h}px`,
-                      animationDelay: transcribingVoice ? undefined : `${(i * 0.045) % 0.7}s`,
-                    }}
+                    style={{ height: '3px' }}
                   />
                 ))}
               </div>

@@ -43,6 +43,7 @@ const config: Config = {
         brand:  '0 4px 14px rgba(124,58,237,.35)',
       },
       keyframes: {
+        thinkPulse: { '0%,100%': { opacity: '0.15' }, '50%': { opacity: '1' } },
         fadeUp:    { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         msgIn:     { from: { opacity: '0', transform: 'translateY(3px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         dotBounce: { '0%,80%,100%': { transform: 'translateY(0)' }, '40%': { transform: 'translateY(-5px)' } },
