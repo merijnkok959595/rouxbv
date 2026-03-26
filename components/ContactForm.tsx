@@ -2,9 +2,11 @@
 
 import { useState } from 'react'
 import { X, Check, Loader2, MapPin, Phone, Globe, User, Building2, ShoppingCart } from 'lucide-react'
+import { cn }              from '@/lib/utils'
+import { Field, TwoCol, FieldSection } from '@/components/ui/field'
 
 export interface ContactFormPrefilled {
-  contactId?:         string   // present → edit/update mode
+  contactId?:         string
   companyName?:       string
   firstName?:         string
   lastName?:          string
@@ -15,7 +17,6 @@ export interface ContactFormPrefilled {
   city?:              string
   website?:           string
   openingHours?:      string
-  // custom fields (preloaded in edit mode)
   groothandel?:       string
   kortingsafspraken?: string
   posMateriaal?:      string
@@ -33,28 +34,57 @@ const GROOTHANDEL_OPTIONS = [
   'Van Toor', 'De Kweker', 'Instock', 'Eigen inkoop', 'Anders',
 ]
 
+const PRODUCTEN_OPTIONS = [
+  'Bitterballen', 'Chorizo kroketje', 'Risottini Tomaat',
+  'Risottini Truffel', 'Risottini Spinazie',
+]
+
+function GoogleBadge() {
+  return (
+    <span className="text-[10px] font-bold text-brand bg-brand-subtle rounded px-1.5 py-px tracking-wide ml-1.5">
+      Google
+    </span>
+  )
+}
+
+function ToggleBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex-1 py-2.5 text-sm font-medium rounded-lg border transition-all duration-150',
+        active
+          ? 'bg-brand border-brand text-white'
+          : 'bg-surface border-border text-muted hover:bg-active',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
 export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: ContactFormProps) {
   const [companyName,       setCompanyName]       = useState(prefilled.companyName ?? '')
   const [firstName,         setFirstName]         = useState(prefilled.firstName   ?? '')
   const [lastName,          setLastName]          = useState(prefilled.lastName    ?? '')
   const [email,             setEmail]             = useState(prefilled.email       ?? '')
   const [phone,             setPhone]             = useState(prefilled.phone       ?? '')
-  const [groothandel,       setGroothandel]       = useState(prefilled.groothandel       ?? '')
+  const [groothandel,       setGroothandel]       = useState(prefilled.groothandel ?? '')
   const [kortingsafspraken, setKortingsafspraken] = useState<'Ja' | 'Nee' | ''>((prefilled.kortingsafspraken as 'Ja' | 'Nee') ?? '')
-  const [posMateriaal,      setPosMateriaal]      = useState<'Ja' | 'Nee' | ''>((prefilled.posMateriaal      as 'Ja' | 'Nee') ?? '')
+  const [posMateriaal,      setPosMateriaal]      = useState<'Ja' | 'Nee' | ''>((prefilled.posMateriaal as 'Ja' | 'Nee') ?? '')
   const [producten,         setProducten]         = useState<string[]>(
     prefilled.producten ? prefilled.producten.split(',').map(s => s.trim()).filter(Boolean) : []
   )
-  const [loading,           setLoading]           = useState(false)
-  const [error,             setError]             = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
 
   const address1     = prefilled.address1     ?? ''
   const postalCode   = prefilled.postalCode   ?? ''
   const city         = prefilled.city         ?? ''
   const website      = prefilled.website      ?? ''
   const openingHours = prefilled.openingHours ?? ''
-
-  const isEdit = !!prefilled.contactId
+  const isEdit       = !!prefilled.contactId
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -75,9 +105,7 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
       }
       const url = isEdit ? `/api/contact-update/${prefilled.contactId}` : '/api/contact-create'
       const res  = await fetch(url, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? (isEdit ? 'Fout bij bijwerken' : 'Fout bij aanmaken'))
@@ -89,54 +117,21 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
     }
   }
 
-  // Beurs-form style helpers
-  const inp = (prefilled = false): React.CSSProperties => ({
-    width: '100%', padding: '10px 12px', fontSize: '14px',
-    color: 'var(--text)', backgroundColor: prefilled ? 'var(--active)' : 'var(--surface)',
-    border: '1px solid var(--border)', borderRadius: '7px',
-    outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
-  })
-  const lbl: React.CSSProperties = {
-    fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '0.01em',
-  }
-  const toggleBtn = (active: boolean): React.CSSProperties => ({
-    flex: 1, padding: '10px 0', fontSize: '14px', fontWeight: 500,
-    border: `1px solid ${active ? 'var(--brand)' : 'var(--border)'}`,
-    borderRadius: '7px', cursor: 'pointer', transition: 'all 0.15s',
-    background: active ? 'var(--brand)' : 'var(--surface)',
-    color: active ? '#fff' : 'var(--muted)',
-  })
-
-  const googleBadge = (
-    <span style={{
-      fontSize: '10px', fontWeight: 700, color: 'var(--brand)',
-      background: 'var(--brand-subtle)', borderRadius: '4px',
-      padding: '1px 5px', letterSpacing: '0.03em', marginLeft: '6px',
-    }}>
-      Google
-    </span>
-  )
-
   return (
-    <form onSubmit={handleSubmit} style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: '12px', overflow: 'hidden', width: '100%', maxWidth: '400px',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-    }}>
-
+    <form
+      onSubmit={handleSubmit}
+      className="bg-surface border border-border rounded-xl overflow-hidden w-full max-w-[400px] shadow-panel"
+    >
       {/* Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg)',
-      }}>
-        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-bg">
+        <span className="text-sm font-bold text-primary tracking-tight">
           {isEdit ? 'Contact bewerken' : 'Nieuw contact'}
         </span>
         {onCancel && (
-          <button type="button" onClick={onCancel} style={{
-            background: 'none', border: 'none', cursor: 'pointer', padding: '4px',
-            color: 'var(--muted)', display: 'flex', borderRadius: '5px',
-          }}>
+          <button
+            type="button" onClick={onCancel}
+            className="p-1 text-muted hover:text-primary hover:bg-active rounded-md transition-colors border-none bg-transparent"
+          >
             <X size={15} />
           </button>
         )}
@@ -144,188 +139,132 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
 
       {/* Google prefill strip */}
       {(address1 || phone || website) && (
-        <div style={{
-          padding: '10px 20px', background: 'var(--bg)',
-          borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '5px',
-        }}>
-          <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--brand)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+        <div className="px-5 py-2.5 bg-bg border-b border-border flex flex-col gap-1">
+          <span className="text-[10px] font-extrabold text-brand tracking-[0.08em] uppercase">
             Gevonden via Google
           </span>
           {address1 && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '12px', color: 'var(--muted)' }}>
-              <MapPin size={11} style={{ marginTop: '1px', color: 'var(--brand)', flexShrink: 0 }} />
+            <div className="flex items-start gap-1.5 text-xs text-muted">
+              <MapPin size={11} className="mt-px text-brand flex-shrink-0" />
               <span>{address1}{postalCode || city ? `, ${[postalCode, city].filter(Boolean).join(' ')}` : ''}</span>
             </div>
           )}
           {phone && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--muted)' }}>
-              <Phone size={11} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+            <div className="flex items-center gap-1.5 text-xs text-muted">
+              <Phone size={11} className="text-brand flex-shrink-0" />
               <span>{phone}</span>
             </div>
           )}
           {website && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-              <Globe size={11} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-              <a href={website} target="_blank" rel="noreferrer" style={{
-                color: 'var(--brand)', textDecoration: 'none',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '280px',
-              }}>
+            <div className="flex items-center gap-1.5 text-xs">
+              <Globe size={11} className="text-brand flex-shrink-0" />
+              <a href={website} target="_blank" rel="noreferrer"
+                className="text-brand truncate max-w-[280px] no-underline hover:underline">
                 {website.replace(/^https?:\/\//, '')}
               </a>
             </div>
           )}
           {openingHours && (
-            <div style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.5 }}>
+            <p className="text-[11px] text-muted leading-relaxed">
               {openingHours.replace(/,\s*/g, ' · ')}
-            </div>
+            </p>
           )}
         </div>
       )}
 
-      {/* ── Section: Bedrijf & Contactpersoon ── */}
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Building2 size={13} style={{ color: 'var(--text)', opacity: 0.7 }} />
-          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bedrijf</span>
-        </div>
-
-        {/* Bedrijfsnaam */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={lbl}>
-            Bedrijfsnaam *
-            {prefilled.companyName && googleBadge}
-          </label>
+      {/* Section: Bedrijf */}
+      <FieldSection title="Bedrijf" icon={<Building2 size={13} />}>
+        <Field label={<>Bedrijfsnaam {prefilled.companyName && <GoogleBadge />}</>} required>
           <input
             value={companyName} onChange={e => setCompanyName(e.target.value)}
-            style={inp(!!prefilled.companyName)} placeholder="Café de Boom" required autoFocus
+            className={cn('field-input', prefilled.companyName && 'bg-active')}
+            placeholder="Café de Boom" required autoFocus
           />
-        </div>
-      </div>
+        </Field>
+      </FieldSection>
 
-      {/* ── Section: Contactpersoon ── */}
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <User size={13} style={{ color: 'var(--text)', opacity: 0.7 }} />
-          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Contactpersoon</span>
-        </div>
-
-        {/* Voornaam + Achternaam */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={lbl}>Voornaam *</label>
+      {/* Section: Contactpersoon */}
+      <FieldSection title="Contactpersoon" icon={<User size={13} />}>
+        <TwoCol>
+          <Field label="Voornaam" required>
             <input value={firstName} onChange={e => setFirstName(e.target.value)}
-              style={inp()} placeholder="Jan" required />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ ...lbl, color: 'var(--muted)' }}>Achternaam</label>
+              className="field-input" placeholder="Jan" required />
+          </Field>
+          <Field label="Achternaam">
             <input value={lastName} onChange={e => setLastName(e.target.value)}
-              style={inp()} placeholder="Jansen" />
-          </div>
-        </div>
-
-        {/* E-mail */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ ...lbl, color: 'var(--muted)' }}>E-mail</label>
+              className="field-input" placeholder="Jansen" />
+          </Field>
+        </TwoCol>
+        <Field label="E-mail">
           <input value={email} onChange={e => setEmail(e.target.value)}
-            style={inp()} placeholder="jan@cafe.nl" type="email" />
-        </div>
-
-        {/* Telefoon */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ ...lbl, color: 'var(--muted)' }}>
-            Telefoonnummer
-            {prefilled.phone && googleBadge}
-          </label>
+            className="field-input" placeholder="jan@cafe.nl" type="email" />
+        </Field>
+        <Field label={<>Telefoonnummer {prefilled.phone && <GoogleBadge />}</>}>
           <input value={phone} onChange={e => setPhone(e.target.value)}
-            style={inp(!!prefilled.phone)} placeholder="+31612345678" type="tel" />
-        </div>
-      </div>
+            className={cn('field-input', prefilled.phone && 'bg-active')}
+            placeholder="+31612345678" type="tel" />
+        </Field>
+      </FieldSection>
 
-      {/* ── Section: Extra ── */}
-      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <ShoppingCart size={13} style={{ color: 'var(--text)', opacity: 0.7 }} />
-          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Extra</span>
-        </div>
-
-        {/* Groothandel */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ ...lbl, color: 'var(--muted)' }}>Groothandel</label>
+      {/* Section: Extra */}
+      <FieldSection title="Extra" icon={<ShoppingCart size={13} />}>
+        <Field label="Groothandel">
           <select value={groothandel} onChange={e => setGroothandel(e.target.value)}
-            style={{ ...inp(), cursor: 'pointer' }}>
+            className="field-input cursor-pointer">
             <option value="">— kies groothandel —</option>
             {GROOTHANDEL_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
-        </div>
+        </Field>
 
-        {/* Kortingsafspraken */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ ...lbl, color: 'var(--muted)' }}>Kortingsafspraken</label>
-          <div style={{ display: 'flex', gap: '6px' }}>
+        <Field label="Kortingsafspraken">
+          <div className="flex gap-1.5">
             {(['Ja', 'Nee'] as const).map(v => (
-              <button key={v} type="button"
-                onClick={() => setKortingsafspraken(p => p === v ? '' : v)}
-                style={toggleBtn(kortingsafspraken === v)}>
+              <ToggleBtn key={v} active={kortingsafspraken === v}
+                onClick={() => setKortingsafspraken(p => p === v ? '' : v)}>
                 {v}
-              </button>
+              </ToggleBtn>
             ))}
           </div>
-        </div>
+        </Field>
 
-        {/* POS materiaal */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ ...lbl, color: 'var(--muted)' }}>POS materiaal</label>
-          <div style={{ display: 'flex', gap: '6px' }}>
+        <Field label="POS materiaal">
+          <div className="flex gap-1.5">
             {(['Ja', 'Nee'] as const).map(v => (
-              <button key={v} type="button"
-                onClick={() => setPosMateriaal(p => p === v ? '' : v)}
-                style={toggleBtn(posMateriaal === v)}>
+              <ToggleBtn key={v} active={posMateriaal === v}
+                onClick={() => setPosMateriaal(p => p === v ? '' : v)}>
                 {v}
-              </button>
+              </ToggleBtn>
             ))}
           </div>
-        </div>
+        </Field>
 
-        {/* Producten */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <label style={{ ...lbl, color: 'var(--muted)' }}>Producten</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {['Bitterballen', 'Chorizo kroketje', 'Risottini Tomaat', 'Risottini Truffel', 'Risottini Spinazie'].map(p => {
-              const active = producten.includes(p)
-              return (
-                <button key={p} type="button"
-                  onClick={() => setProducten(prev => active ? prev.filter(x => x !== p) : [...prev, p])}
-                  style={toggleBtn(active)}>
-                  {p}
-                </button>
-              )
-            })}
+        <Field label="Producten">
+          <div className="flex flex-wrap gap-1.5">
+            {PRODUCTEN_OPTIONS.map(p => (
+              <ToggleBtn key={p} active={producten.includes(p)}
+                onClick={() => setProducten(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])}>
+                {p}
+              </ToggleBtn>
+            ))}
           </div>
-        </div>
-      </div>
+        </Field>
+      </FieldSection>
 
       {/* Footer */}
-      <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {error && (
-          <p style={{ fontSize: '12px', color: '#DC2626', margin: '0 0 4px' }}>{error}</p>
-        )}
-        <button type="submit" disabled={loading} style={{
-          width: '100%', padding: '12px', fontSize: '14px', fontWeight: 600,
-          border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer',
-          background: loading ? 'var(--border)' : 'var(--text)', color: loading ? 'var(--muted)' : 'var(--surface)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
-        }}>
+      <div className="px-5 py-4 flex flex-col gap-2">
+        {error && <p className="text-xs text-red-500 mb-1">{error}</p>}
+        <button
+          type="submit" disabled={loading}
+          className="btn-primary w-full py-3"
+        >
           {loading
-            ? <><Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> Bezig…</>
+            ? <><Loader2 size={14} className="animate-spin" /> Bezig…</>
             : <><Check size={14} /> {isEdit ? 'Bijwerken in GHL' : 'Aanmaken in GHL'}</>
           }
         </button>
         {onCancel && (
-          <button type="button" onClick={onCancel} disabled={loading} style={{
-            width: '100%', padding: '10px', fontSize: '13px', fontWeight: 500,
-            border: 'none', borderRadius: '8px', cursor: 'pointer', background: 'none',
-            color: 'var(--muted)',
-          }}>
+          <button type="button" onClick={onCancel} disabled={loading}
+            className="w-full py-2.5 text-sm text-muted hover:text-primary bg-transparent border-none cursor-pointer transition-colors">
             Annuleren
           </button>
         )}

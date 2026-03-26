@@ -2,13 +2,17 @@
 
 import { useRef, useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Briefcase, User, MapPin, Tag, FileText, RotateCcw, Flag, Loader2, ArrowUpRight, Mic, StopCircle } from 'lucide-react'
+import {
+  Briefcase, User, MapPin, Tag, FileText, RotateCcw,
+  Flag, Loader2, ArrowUpRight, Mic, StopCircle,
+} from 'lucide-react'
 import PlacesCompanyInput, { type PlaceResult } from '@/components/PlacesCompanyInput'
 import { beursOptionsForYear, defaultBeursSource, SOURCE_STORAGE_KEY } from '@/lib/beurs-sources'
 import { nationalDigitsToE164NL, countNlNationalDigits } from '@/lib/phone-nl'
+import { Field, TwoCol, FieldSection } from '@/components/ui/field'
+import { cn } from '@/lib/utils'
 
 const MONO = "'SF Mono','Fira Code',monospace"
-const F    = "'Inter',-apple-system,sans-serif"
 const YEAR = new Date().getFullYear()
 const CHANNEL = 'OFFLINE'
 const SOURCE_OPTIONS = beursOptionsForYear(YEAR)
@@ -39,14 +43,14 @@ export default function FormulierPage() {
   const [address,      setAddress]      = useState('')
   const [city,         setCity]         = useState('')
   const [postcode,     setPostcode]     = useState('')
-  const [country,       setCountry]       = useState('Nederland')
-  const [openingHours,  setOpeningHours]  = useState<PlaceResult['opening_hours']>(null)
-  const [source,        setSource]        = useState(defaultBeursSource(YEAR))
+  const [country,      setCountry]      = useState('Nederland')
+  const [openingHours, setOpeningHours] = useState<PlaceResult['opening_hours']>(null)
+  const [source,       setSource]       = useState(defaultBeursSource(YEAR))
   const [phoneNational, setPhoneNational] = useState('')
-  const [teamMembers,   setTeamMembers]   = useState<TeamMember[]>([])
-  const [notes,         setNotes]         = useState('')
-  const [recording,     setRecording]     = useState(false)
-  const [transcribing,  setTranscribing]  = useState(false)
+  const [teamMembers,  setTeamMembers]  = useState<TeamMember[]>([])
+  const [notes,        setNotes]        = useState('')
+  const [recording,    setRecording]    = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef   = useRef<Blob[]>([])
 
@@ -63,9 +67,7 @@ export default function FormulierPage() {
 
   function persistSource(s: string) {
     setSource(s)
-    try {
-      localStorage.setItem(SOURCE_STORAGE_KEY, s)
-    } catch { /* ignore */ }
+    try { localStorage.setItem(SOURCE_STORAGE_KEY, s) } catch { /* ignore */ }
   }
 
   function handlePlaceSelect(p: PlaceResult) {
@@ -87,9 +89,7 @@ export default function FormulierPage() {
           const fd = new FormData(); fd.append('audio', blob, 'recording.webm')
           const res  = await fetch('/api/suus/transcribe', { method: 'POST', body: fd })
           const data = await res.json() as { text?: string }
-          if (data.text) {
-            setNotes(prev => prev ? `${prev} ${data.text}` : data.text!)
-          }
+          if (data.text) setNotes(prev => prev ? `${prev} ${data.text}` : data.text!)
         } catch { /* ignore */ } finally { setTranscribing(false) }
       }
       mr.start(); mediaRecorderRef.current = mr; setRecording(true)
@@ -115,61 +115,39 @@ export default function FormulierPage() {
     if (!formRef.current) return
     setError(null)
     const digits = countNlNationalDigits(phoneNational)
-    if (digits < 9) {
-      setError('Vul een geldig mobiel nummer in (9 cijfers na +31).')
-      return
-    }
+    if (digits < 9) { setError('Vul een geldig mobiel nummer in (9 cijfers na +31).'); return }
     const phoneE164 = nationalDigitsToE164NL(phoneNational)
-
     const fd = new FormData(formRef.current)
     const body = {
-      company:       fd.get('company')    as string,
-      first_name:    fd.get('first_name') as string,
-      last_name:     fd.get('last_name')  as string,
-      email:         fd.get('email')      as string,
-      phone:         phoneE164,
-      address, city, postcode, country,
+      company:    fd.get('company')     as string,
+      first_name: fd.get('first_name')  as string,
+      last_name:  fd.get('last_name')   as string,
+      email:      fd.get('email')       as string,
+      phone: phoneE164, address, city, postcode, country,
       opening_hours: openingHours,
-      assigned_to:   fd.get('assigned_to') as string,
-      status:        fd.get('status')      as string,
-      notes,
-      source, channel: CHANNEL,
+      assigned_to: fd.get('assigned_to') as string,
+      status:      fd.get('status')      as string,
+      notes, source, channel: CHANNEL,
     }
-
     try {
       setPhase('saving')
       let res: Response
       try {
-        res = await fetch('/api/formulier', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
+        res = await fetch('/api/formulier', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       } catch {
-        throw new Error('Geen verbinding met de server (fetch mislukt). Controleer of `npm run dev` draait en de juiste poort (b.v. :3001).')
+        throw new Error('Geen verbinding met de server.')
       }
       const data = (await res.json()) as { error?: string; id?: string; assigned_to?: string | null }
       if (!res.ok) throw new Error(data.error ?? 'Fout bij opslaan')
       if (!data.id) throw new Error('Server gaf geen contact-id terug')
-
-      try {
-        localStorage.setItem(SOURCE_STORAGE_KEY, source)
-      } catch { /* ignore */ }
+      try { localStorage.setItem(SOURCE_STORAGE_KEY, source) } catch { /* ignore */ }
 
       const { status: formStatus, channel: _ch, ...contactFields } = body
-      setSavedContact({
-        ...contactFields,
-        id: data.id,
-        assigned_to: data.assigned_to ?? null,
-        contact_type: formStatus || 'lead',
-        opening_hours: openingHours,
-      })
+      setSavedContact({ ...contactFields, id: data.id, assigned_to: data.assigned_to ?? null, contact_type: formStatus || 'lead', opening_hours: openingHours })
       formRef.current.reset()
       setAddress(''); setCity(''); setPostcode(''); setCountry('Nederland')
-      setPhoneNational(''); setNotes('')
-      setOpeningHours(null)
+      setPhoneNational(''); setNotes(''); setOpeningHours(null)
 
-      // Poll for enrich result (label + revenue + assigned_to)
       setPhase('enriching')
       try {
         const contactId = data.id
@@ -186,10 +164,7 @@ export default function FormulierPage() {
             assignedTo = pollData.assigned_to
             setSavedContact(prev => prev ? { ...prev, assigned_to: assignedTo } : prev)
           }
-          if (pollData.label) {
-            result = { label: pollData.label, revenue: pollData.revenue ?? null, summary: null }
-            break
-          }
+          if (pollData.label) { result = { label: pollData.label, revenue: pollData.revenue ?? null, summary: null }; break }
         }
         setEnrichResult(result)
       } catch { /* ignore */ }
@@ -204,203 +179,191 @@ export default function FormulierPage() {
   const showResult   = phase === 'enriching' || phase === 'done'
 
   return (
-    <div style={{ backgroundColor: 'var(--bg)', minHeight: '100vh' }}>
-      <style>{`
-        @keyframes recPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-        @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-      `}</style>
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div style={{ width: '100%', maxWidth: '520px', padding: '32px 16px 64px' }}>
+    <div className="min-h-screen bg-bg">
+      <div className="flex justify-center">
+        <div className="w-full max-w-[520px] px-4 pt-8 pb-16">
 
-          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-            <h1 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', margin: '0 0 6px' }}>
+          {/* Header */}
+          <div className="text-center mb-5">
+            <h1 className="text-xl font-bold text-primary tracking-tight mb-1.5">
               Beurs formulier
             </h1>
-            <p style={{ fontSize: '14px', color: 'var(--label-secondary)', margin: '0 0 8px', lineHeight: 1.45 }}>
+            <p className="text-sm text-muted mb-2 leading-snug">
               Intake formulier voor nieuwe beurs leads
             </p>
-            <Link href="/leads" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', textDecoration: 'underline' }}>
+            <Link href="/leads" className="text-[13px] font-semibold text-primary underline">
               Bekijk opgeslagen leads
             </Link>
           </div>
 
-
+          {/* Success card */}
           {showResult && savedContact && (
-            <SuccessCard phase={phase} contact={savedContact} enrich={enrichResult} onStartOver={startOver} teamMembers={teamMembers} />
+            <SuccessCard
+              phase={phase} contact={savedContact} enrich={enrichResult}
+              onStartOver={startOver} teamMembers={teamMembers}
+            />
           )}
 
-          <div style={{ display: showResult ? 'none' : 'block' }}>
-            <form ref={formRef} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-
-              <Section title="Bedrijf" icon={<Briefcase size={13} />}>
+          {/* Form */}
+          <div className={showResult ? 'hidden' : 'block'}>
+            <form
+              ref={formRef} onSubmit={handleSubmit}
+              className="flex flex-col bg-surface border border-border rounded-xl overflow-hidden"
+            >
+              <FieldSection title="Bedrijf" icon={<Briefcase size={13} />}>
                 <div>
-                  <PlacesCompanyInput required autoFocus onSelect={handlePlaceSelect} inputStyle={inp()} placeholder="bijv. Grand Café De Hoorn BV" />
-                  <p style={{ fontSize: '12px', color: 'var(--label-secondary)', marginTop: '6px', marginBottom: 0 }}>
+                  <PlacesCompanyInput
+                    required autoFocus onSelect={handlePlaceSelect}
+                    inputStyle={{ width: '100%', padding: '10px 12px', fontSize: '15px', color: 'var(--text)', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '7px', outline: 'none', boxSizing: 'border-box' }}
+                    placeholder="bijv. Grand Café De Hoorn BV"
+                  />
+                  <p className="text-xs text-muted mt-1.5">
                     Begin te typen — adres vult automatisch in via Google Places
                   </p>
                 </div>
-              </Section>
+              </FieldSection>
 
-              <Section title="Adres" icon={<MapPin size={13} />}>
-                <LF label="Straat & nummer">
-                  <input name="address" value={address} onChange={e => setAddress(e.target.value)} placeholder="Marktstraat 14" style={inp()} />
-                </LF>
+              <FieldSection title="Adres" icon={<MapPin size={13} />}>
+                <Field label="Straat & nummer">
+                  <input name="address" value={address} onChange={e => setAddress(e.target.value)}
+                    placeholder="Marktstraat 14" className="field-input" />
+                </Field>
                 <TwoCol>
-                  <LF label="Stad"><input name="city" value={city} onChange={e => setCity(e.target.value)} placeholder="Rotterdam" style={inp()} /></LF>
-                  <LF label="Postcode"><input name="postcode" value={postcode} onChange={e => setPostcode(e.target.value)} placeholder="3011 BV" style={inp()} /></LF>
+                  <Field label="Stad">
+                    <input name="city" value={city} onChange={e => setCity(e.target.value)}
+                      placeholder="Rotterdam" className="field-input" />
+                  </Field>
+                  <Field label="Postcode">
+                    <input name="postcode" value={postcode} onChange={e => setPostcode(e.target.value)}
+                      placeholder="3011 BV" className="field-input" />
+                  </Field>
                 </TwoCol>
-                <LF label="Land">
-                  <input name="country" value={country} onChange={e => setCountry(e.target.value)} placeholder="Nederland" style={inp()} />
-                </LF>
-              </Section>
+                <Field label="Land">
+                  <input name="country" value={country} onChange={e => setCountry(e.target.value)}
+                    placeholder="Nederland" className="field-input" />
+                </Field>
+              </FieldSection>
 
-              <Section title="Contactpersoon" icon={<User size={13} />}>
+              <FieldSection title="Contactpersoon" icon={<User size={13} />}>
                 <TwoCol>
-                  <LF label="Voornaam *"><input name="first_name" required placeholder="Thomas" style={inp()} /></LF>
-                  <LF label="Achternaam"><input name="last_name" placeholder="van den Berg" style={inp()} /></LF>
+                  <Field label="Voornaam" required>
+                    <input name="first_name" required placeholder="Thomas" className="field-input" />
+                  </Field>
+                  <Field label="Achternaam">
+                    <input name="last_name" placeholder="van den Berg" className="field-input" />
+                  </Field>
                 </TwoCol>
-                <LF label="E-mailadres">
-                  <input name="email" type="email" placeholder="thomas@grandcafe.nl" style={inp()} />
-                </LF>
-                <LF label="Telefoonnummer *">
-                  <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, borderRadius: '7px', border: '1px solid var(--border)', overflow: 'hidden', backgroundColor: 'var(--surface)' }}>
-                    <span
-                      aria-hidden
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '0 10px',
-                        fontSize: '14px',
-                        fontWeight: 600,
-                        color: 'var(--text)',
-                        backgroundColor: 'var(--active)',
-                        borderRight: '1px solid var(--border)',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <span style={{ fontSize: '18px', lineHeight: 1 }} title="Nederland">🇳🇱</span>
+                <Field label="E-mailadres">
+                  <input name="email" type="email" placeholder="thomas@grandcafe.nl" className="field-input" />
+                </Field>
+                <Field label="Telefoonnummer" required>
+                  <div className="flex items-stretch rounded-lg border border-border overflow-hidden bg-surface">
+                    <span className="flex items-center gap-1.5 px-3 text-sm font-semibold text-primary bg-active border-r border-border flex-shrink-0">
+                      <span className="text-lg leading-none" title="Nederland">🇳🇱</span>
                       +31
                     </span>
                     <input
-                      type="tel"
-                      inputMode="numeric"
-                      autoComplete="tel-national"
-                      required
-                      value={phoneNational}
-                      onChange={e => setPhoneNational(e.target.value)}
-                      placeholder="6 12345678"
-                      aria-label="Telefoonnummer zonder landcode"
-                      style={{
-                        ...inp(),
-                        border: 'none',
-                        borderRadius: 0,
-                        flex: 1,
-                        minWidth: 0,
-                      }}
+                      type="tel" inputMode="numeric" autoComplete="tel-national" required
+                      value={phoneNational} onChange={e => setPhoneNational(e.target.value)}
+                      placeholder="6 12345678" aria-label="Telefoonnummer zonder landcode"
+                      className="field-input flex-1 min-w-0 border-0 rounded-none focus:ring-0"
                     />
                   </div>
-                  <p style={{ fontSize: '13px', color: 'var(--label-secondary)', margin: '6px 0 0', lineHeight: 1.45 }}>
+                  <p className="text-xs text-muted mt-1 leading-snug">
                     Alleen je Nederlandse nummer invoeren; +31 wordt automatisch toegevoegd.
                   </p>
-                </LF>
-              </Section>
+                </Field>
+              </FieldSection>
 
-              <Section title="Classificatie" icon={<Tag size={13} />}>
+              <FieldSection title="Classificatie" icon={<Tag size={13} />}>
                 <TwoCol>
-                  <LF label="Toegewezen aan">
-                    <select name="assigned_to" style={{ ...inp(), cursor: 'pointer' }}>
+                  <Field label="Toegewezen aan">
+                    <select name="assigned_to" className="field-input cursor-pointer">
                       <option value="">Auto</option>
+                      {teamMembers.map(m => <option key={m.id} value={m.naam}>{m.naam}</option>)}
                     </select>
-                  </LF>
-                  <LF label="Type">
-                    <select name="status" style={{ ...inp(), cursor: 'pointer' }}>
+                  </Field>
+                  <Field label="Type">
+                    <select name="status" className="field-input cursor-pointer">
                       <option value="lead">Lead</option>
                       <option value="customer">Klant</option>
                       <option value="employee">Medewerker</option>
                     </select>
-                  </LF>
+                  </Field>
                 </TwoCol>
-              </Section>
+              </FieldSection>
 
-              <Section title="Notities" icon={<FileText size={13} />}>
-                <div style={{ position: 'relative' }}>
+              <FieldSection title="Notities" icon={<FileText size={13} />}>
+                <div className="relative">
                   <textarea
-                    name="notes"
-                    rows={4}
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
+                    name="notes" rows={4}
+                    value={notes} onChange={e => setNotes(e.target.value)}
                     placeholder={transcribing ? 'Transcriberen…' : 'Interesse in… Opening gepland op… Bijzonderheden…'}
                     disabled={transcribing}
-                    style={{ ...inp(), resize: 'vertical', lineHeight: 1.6, paddingRight: '44px' }}
+                    className="field-input resize-y leading-relaxed pr-11"
                   />
                   <button
                     type="button"
                     onClick={recording ? stopRecording : startRecording}
                     title={recording ? 'Stop opname' : 'Dicteer notities'}
-                    style={{
-                      position: 'absolute', top: '8px', right: '8px',
-                      width: '30px', height: '30px', borderRadius: '6px', border: 'none',
-                      background: recording ? '#fef2f2' : 'var(--active)',
-                      color: recording ? '#dc2626' : 'var(--muted)',
-                      cursor: transcribing ? 'default' : 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexShrink: 0, opacity: transcribing ? 0.5 : 1,
-                      animation: recording ? 'recPulse 1s ease-in-out infinite' : 'none',
-                    }}
+                    disabled={transcribing}
+                    className={cn(
+                      'absolute top-2 right-2 w-8 h-8 rounded-md flex items-center justify-center border-none transition-all',
+                      recording
+                        ? 'bg-red-50 text-red-600 animate-[recPulse_1s_ease-in-out_infinite]'
+                        : 'bg-active text-muted hover:text-primary',
+                      transcribing && 'opacity-50 cursor-default',
+                    )}
                   >
                     {recording ? <StopCircle size={14} /> : <Mic size={14} />}
                   </button>
                 </div>
                 {(recording || transcribing) && (
-                  <p style={{ fontSize: '12px', color: '#dc2626', margin: '4px 0 0', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#dc2626', display: 'inline-block', animation: 'recPulse 1s ease-in-out infinite' }} />
+                  <p className="flex items-center gap-1.5 text-xs text-red-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-[recPulse_1s_ease-in-out_infinite]" />
                     {transcribing ? 'Transcriberen…' : 'Opname bezig — klik stop om klaar te zijn'}
                   </p>
                 )}
-              </Section>
+              </FieldSection>
 
-              <Section title="Herkomst" icon={<Flag size={13} />}>
+              <FieldSection title="Herkomst" icon={<Flag size={13} />}>
                 <TwoCol>
-                  <LF label="Beurs / herkomst">
-                    <select
-                      name="source"
-                      value={source}
-                      onChange={e => persistSource(e.target.value)}
-                      style={{ ...inp(), cursor: 'pointer' }}
-                    >
-                      {SOURCE_OPTIONS.map(opt => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
+                  <Field label="Beurs / herkomst">
+                    <select name="source" value={source} onChange={e => persistSource(e.target.value)}
+                      className="field-input cursor-pointer">
+                      {SOURCE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
-                  </LF>
-                  <LF label="Channel">
-                    <select disabled value={CHANNEL} style={{ ...inp(), color: 'var(--label-secondary)', backgroundColor: 'var(--active)', cursor: 'not-allowed' }}>
+                  </Field>
+                  <Field label="Channel">
+                    <select disabled value={CHANNEL} className="field-input text-muted bg-active cursor-not-allowed">
                       <option>{CHANNEL}</option>
                     </select>
-                  </LF>
+                  </Field>
                 </TwoCol>
-              </Section>
+              </FieldSection>
 
-              <div style={{ padding: '16px 20px', backgroundColor: 'var(--surface)' }}>
-                {error && <p style={{ fontSize: '12px', color: '#DC2626', marginBottom: '8px' }}>{error}</p>}
-                <button type="submit" disabled={isSubmitting} style={submitBtn(isSubmitting)}>
-                  {isSubmitting ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Opslaan…</> : 'Opslaan'}
+              <div className="px-5 py-4">
+                {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+                <button
+                  type="submit" disabled={isSubmitting}
+                  className="btn-primary w-full py-3"
+                >
+                  {isSubmitting
+                    ? <><Loader2 size={14} className="animate-spin" /> Opslaan…</>
+                    : 'Opslaan'
+                  }
                 </button>
               </div>
-
             </form>
           </div>
+
         </div>
       </div>
     </div>
   )
 }
 
-// ── Success card ────────────────────────────────────────────────
+// ── Success card ─────────────────────────────────────────────────────────────
 
 function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
   phase: Phase; contact: SavedContact; enrich: EnrichResult | null; onStartOver: () => void; teamMembers: TeamMember[]
@@ -413,36 +376,33 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
   const mc = assignedMember?.color ?? null
 
   return (
-    <div style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
+    <div className="bg-surface border border-border rounded-xl overflow-hidden mb-5">
       {/* Header */}
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--active)', display: 'flex', alignItems: 'center', gap: '7px' }}>
-        {enriching && <Loader2 size={12} color="var(--label-secondary)" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
-        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-active">
+        {enriching && <Loader2 size={12} className="animate-spin text-muted flex-shrink-0" />}
+        <span className="text-xs font-semibold text-primary">
           {enriching ? 'Kwalificeren…' : 'Lead opgeslagen ✓'}
         </span>
       </div>
 
-      {/* Bedrijf */}
       {contact.company && (
-        <CSection title="Bedrijf" icon={<Briefcase size={12} />}>
-          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>{contact.company}</span>
-        </CSection>
+        <ResultSection title="Bedrijf" icon={<Briefcase size={12} />}>
+          <span className="text-sm font-bold text-primary tracking-tight">{contact.company}</span>
+        </ResultSection>
       )}
 
-      {/* Adres */}
       {(contact.address || contact.city) && (
-        <CSection title="Adres" icon={<MapPin size={12} />}>
+        <ResultSection title="Adres" icon={<MapPin size={12} />}>
           {contact.address && <Val label="Straat" value={contact.address} />}
           <TwoCol>
             {contact.city     && <Val label="Stad"     value={contact.city} />}
             {contact.postcode && <Val label="Postcode" value={contact.postcode} mono />}
           </TwoCol>
-        </CSection>
+        </ResultSection>
       )}
 
-      {/* Contactpersoon */}
       {(contact.first_name || contact.phone) && (
-        <CSection title="Contactpersoon" icon={<User size={12} />}>
+        <ResultSection title="Contactpersoon" icon={<User size={12} />}>
           <TwoCol>
             {contact.first_name && <Val label="Voornaam"   value={contact.first_name} />}
             {contact.last_name  && <Val label="Achternaam" value={contact.last_name} />}
@@ -451,74 +411,78 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
             {contact.phone && <Val label="Telefoon" value={contact.phone} mono />}
             {contact.email && <Val label="E-mail"   value={contact.email} />}
           </TwoCol>
-        </CSection>
+        </ResultSection>
       )}
 
-      {/* Herkomst */}
-      <CSection title="Herkomst" icon={<Flag size={12} />}>
+      <ResultSection title="Herkomst" icon={<Flag size={12} />}>
         <TwoCol>
           <Val label="Beurs / bron" value={contact.source || '—'} />
-          <Val label="Channel"      value={'OFFLINE'} mono />
+          <Val label="Channel"      value="OFFLINE" mono />
         </TwoCol>
-      </CSection>
+      </ResultSection>
 
-      {/* Classificatie */}
-      <CSection title="Classificatie" icon={<Tag size={12} />}>
+      <ResultSection title="Classificatie" icon={<Tag size={12} />}>
         <TwoCol>
           {/* Label */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--label-secondary)' }}>Label</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted">Label</span>
             {enriching
-              ? <div style={{ height: '22px', width: '36px', borderRadius: '4px', backgroundColor: 'var(--border)', animation: 'pulse 1.4s ease-in-out infinite' }} />
+              ? <div className="h-[22px] w-9 rounded bg-border animate-pulse" />
               : lm && enrich?.label
-                ? <span style={{ display: 'inline-flex', alignSelf: 'flex-start', fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: '4px', backgroundColor: lm.bg, color: lm.text, border: `1px solid ${lm.border}`, fontFamily: MONO, letterSpacing: '0.08em' }}>{enrich.label}</span>
-                : <span style={{ fontSize: '12px', color: 'var(--label-secondary)' }}>wordt bepaald…</span>
+                ? <span className="self-start text-xs font-bold px-2.5 py-1 rounded"
+                    style={{ backgroundColor: lm.bg, color: lm.text, border: `1px solid ${lm.border}`, fontFamily: MONO, letterSpacing: '0.08em' }}>
+                    {enrich.label}
+                  </span>
+                : <span className="text-xs text-muted">wordt bepaald…</span>
             }
           </div>
           {/* Volume */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--label-secondary)' }}>Volume</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-muted">Volume</span>
             {enriching
-              ? <div style={{ height: '16px', width: '60px', borderRadius: '4px', backgroundColor: 'var(--border)', animation: 'pulse 1.4s ease-in-out infinite' }} />
+              ? <div className="h-4 w-16 rounded bg-border animate-pulse" />
               : enrich?.revenue != null
-                ? <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', fontFamily: MONO }}>{Number(enrich.revenue).toLocaleString('nl-NL')}</span>
-                : <span style={{ fontSize: '12px', color: 'var(--label-secondary)' }}>wordt bepaald…</span>
+                ? <span className="text-[13px] font-bold text-primary" style={{ fontFamily: MONO }}>
+                    {Number(enrich.revenue).toLocaleString('nl-NL')}
+                  </span>
+                : <span className="text-xs text-muted">wordt bepaald…</span>
             }
           </div>
         </TwoCol>
 
         {/* Toegewezen aan */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--label-secondary)' }}>Toegewezen aan</span>
+        <div className="flex flex-col gap-1 mt-1.5">
+          <span className="text-xs font-semibold text-muted">Toegewezen aan</span>
           {enriching
-            ? <div style={{ height: '22px', width: '100px', borderRadius: '20px', backgroundColor: 'var(--border)', animation: 'pulse 1.4s ease-in-out infinite' }} />
+            ? <div className="h-[22px] w-24 rounded-full bg-border animate-pulse" />
             : contact.assigned_to
-              ? <span style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', backgroundColor: mc ? `${mc}18` : 'var(--active)', color: mc ?? 'var(--text)', border: `1px solid ${mc ? `${mc}40` : 'var(--border)'}`, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                  {mc && <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: mc, flexShrink: 0 }} />}
+              ? <span className="self-start flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full tracking-wide uppercase"
+                  style={{ backgroundColor: mc ? `${mc}18` : 'var(--active)', color: mc ?? 'var(--text)', border: `1px solid ${mc ? `${mc}40` : 'var(--border)'}` }}>
+                  {mc && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: mc }} />}
                   {contact.assigned_to}
                 </span>
-              : <span style={{ fontSize: '12px', color: 'var(--label-secondary)' }}>wordt bepaald…</span>
+              : <span className="text-xs text-muted">wordt bepaald…</span>
           }
         </div>
 
         {enrich?.summary && (
-          <p style={{ fontSize: '13px', lineHeight: 1.55, color: 'var(--label-secondary)', fontStyle: 'italic', margin: '6px 0 0' }}>{enrich.summary}</p>
+          <p className="text-[13px] leading-snug text-muted italic mt-1.5">{enrich.summary}</p>
         )}
-      </CSection>
+      </ResultSection>
 
-      {/* Notities */}
       {contact.notes && (
-        <CSection title="Notities" icon={<FileText size={12} />}>
-          <p style={{ fontSize: '14px', lineHeight: 1.55, color: 'var(--text)', margin: 0 }}>{contact.notes}</p>
-        </CSection>
+        <ResultSection title="Notities" icon={<FileText size={12} />}>
+          <p className="text-sm leading-relaxed text-primary">{contact.notes}</p>
+        </ResultSection>
       )}
 
-      {/* Actions */}
-      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <button onClick={onStartOver} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--text)', color: 'var(--surface)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px' }}>
+      <div className="px-4 py-3 flex flex-col gap-2">
+        <button onClick={onStartOver}
+          className="btn-primary w-full py-2.5">
           <RotateCcw size={13} strokeWidth={2} /> Nieuwe lead toevoegen
         </button>
-        <a href="/leads" style={{ width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', textDecoration: 'none', boxSizing: 'border-box' }}>
+        <a href="/leads"
+          className="w-full py-2.5 rounded-lg border border-border bg-surface text-[13px] font-semibold text-primary flex items-center justify-center gap-2 no-underline box-border hover:bg-active transition-colors">
           <ArrowUpRight size={13} strokeWidth={2} /> Bekijk alle leads
         </a>
       </div>
@@ -526,12 +490,12 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
   )
 }
 
-function CSection({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+function ResultSection({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <span style={{ color: 'var(--label-secondary)', display: 'flex' }}>{icon}</span>
-        <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</span>
+    <div className="px-4 py-3 border-b border-border last:border-b-0 flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
+        <span className="text-muted flex">{icon}</span>
+        <span className="text-[11px] font-extrabold text-primary uppercase tracking-[0.06em]">{title}</span>
       </div>
       {children}
     </div>
@@ -540,42 +504,9 @@ function CSection({ title, icon, children }: { title: string; icon: React.ReactN
 
 function Val({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--label-secondary)' }}>{label}</span>
-      <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text)', fontFamily: mono ? MONO : F, lineHeight: 1.4 }}>{value}</span>
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs font-semibold text-muted">{label}</span>
+      <span className="text-xs font-medium text-primary leading-snug" style={mono ? { fontFamily: MONO } : undefined}>{value}</span>
     </div>
   )
-}
-
-function Section({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <span style={{ color: 'var(--text)', opacity: 0.85 }}>{icon}</span>
-        <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>{title}</p>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function TwoCol({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>{children}</div>
-}
-
-function LF({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '0.01em' }}>{label}</label>
-      {children}
-    </div>
-  )
-}
-
-function inp(): React.CSSProperties {
-  return { width: '100%', padding: '10px 12px', fontSize: '15px', color: 'var(--text)', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '7px', outline: 'none', boxSizing: 'border-box' }
-}
-
-function submitBtn(disabled: boolean): React.CSSProperties {
-  return { width: '100%', padding: '12px', fontSize: '14px', fontWeight: 600, borderRadius: '8px', border: 'none', backgroundColor: disabled ? 'var(--border)' : 'var(--text)', color: disabled ? 'var(--muted)' : 'var(--surface)', cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }
 }

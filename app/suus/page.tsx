@@ -1,12 +1,24 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowUp, Phone, PhoneOff, Mic, MicOff, X, StopCircle, Paperclip, Image, Mic2 } from 'lucide-react'
-import { RetellWebClient } from 'retell-client-js-sdk'
-import { useEmployee }      from '@/lib/employee-context'
+import { ArrowUp, PhoneOff, Mic, MicOff, X, ImageIcon, Plus, AudioLines, Check, Phone } from 'lucide-react'
+import { cn }              from '@/lib/utils'
+import { useEmployee }     from '@/lib/employee-context'
 import ContactForm,  { ContactFormPrefilled } from '@/components/ContactForm'
 import BriefingCard, { BriefingData }         from '@/components/BriefingCard'
 import { ContactFormCard, ContactSelectorCards, ContactCardData } from '@/components/ContactCard'
+import { VoiceOrb } from '@/components/ui/voice-orb'
+
+/* ─── Types ─────────────────────────────────────────────────────── */
+type AgentState = null | 'thinking' | 'listening' | 'talking'
+
+function toOrbState(s: AgentState, callStatus?: 'idle' | 'connecting' | 'active') {
+  if (callStatus === 'connecting') return 'connecting' as const
+  if (s === 'listening') return 'listening' as const
+  if (s === 'talking')   return 'speaking' as const
+  if (s === 'thinking')  return 'connecting' as const
+  return 'idle' as const
+}
 
 type Msg = {
   role:          'user' | 'ai'
@@ -19,194 +31,41 @@ type Msg = {
   contactsData?: ContactCardData[]
 }
 
-/* ─── CSS ─────────────────────────────────────────────────── */
-const CSS = `
-  @keyframes orbMorph {
-    0%,100% { border-radius:50% }
-    25%      { border-radius:44% 56% 55% 45%/48% 52% 48% 52% }
-    50%      { border-radius:56% 44% 48% 52%/52% 48% 54% 46% }
-    75%      { border-radius:48% 52% 44% 56%/44% 56% 52% 48% }
-  }
-  @keyframes orbSpin  { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }
-  @keyframes orbInner { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.7;transform:scale(1.08)} }
-  @keyframes ringPulse{ 0%{transform:scale(1);opacity:.5} 70%,100%{transform:scale(1.8);opacity:0} }
-  @keyframes waveAnim { 0%,100%{height:4px} 50%{height:22px} }
-  @keyframes waveUser { 0%,100%{height:4px} 50%{height:14px} }
-  @keyframes recPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-  @keyframes fadeUp   { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-  @keyframes msgIn    { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:translateY(0)} }
-  @keyframes dotBounce{ 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
-
-  /* ── Page shell ── */
-  .gpt-wrap { display:flex; flex-direction:column; height:calc(100vh - 44px); background:var(--bg); position:relative; }
-
-  /* ── Feed ── */
-  .gpt-feed { flex:1; overflow-y:auto; }
-  .gpt-feed::-webkit-scrollbar { width:4px; }
-  .gpt-feed::-webkit-scrollbar-track { background:transparent; }
-  .gpt-feed::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
-  .gpt-inner { max-width:720px; margin:0 auto; padding:24px 16px 16px; display:flex; flex-direction:column; gap:0; }
-
-  /* ── Empty state ── */
-  .gpt-empty { display:flex; flex-direction:column; align-items:center; gap:20px;
-    padding:60px 0 32px; animation:fadeUp .4s ease; }
-  .gpt-empty h2 { font-size:22px; font-weight:700; color:var(--text); letter-spacing:-.03em; margin:0; }
-  .gpt-empty p  { font-size:13px; color:var(--muted); margin:0; }
-  .gpt-chips { display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; max-width:420px; }
-  .gpt-chip  { padding:10px 13px; border-radius:10px; border:1px solid var(--border);
-    background:var(--surface); font-size:12px; color:var(--text); cursor:pointer;
-    text-align:left; line-height:1.4; font-weight:500; transition:background .12s; }
-  .gpt-chip:hover { background:var(--active); }
-
-  /* ── Message rows ── */
-  .gpt-row { padding:6px 0; animation:msgIn .2s ease; }
-
-  /* AI row: avatar + text side by side */
-  .gpt-ai  { display:flex; gap:12px; align-items:flex-start; }
-  .gpt-ai-body { flex:1; min-width:0; padding-top:2px; }
-  .gpt-ai-text { font-size:14px; line-height:1.65; color:var(--text); white-space:pre-wrap; word-break:break-word; }
-  .gpt-ai-cards { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
-
-  /* User row: pill bubble, right-aligned */
-  .gpt-user { display:flex; justify-content:flex-end; }
-  .gpt-user-bubble { background:var(--active); color:var(--text);
-    border-radius:18px 18px 4px 18px;
-    padding:9px 14px; font-size:14px; line-height:1.55; max-width:75%;
-    white-space:pre-wrap; word-break:break-word; }
-  .gpt-user-img { max-width:200px; max-height:150px; border-radius:8px; object-fit:cover;
-    display:block; margin-bottom:6px; }
-
-  /* Typing dots */
-  .gpt-dots { display:flex; gap:4px; align-items:center; padding:4px 0; }
-  .gpt-dot  { width:6px; height:6px; border-radius:50%; background:var(--muted);
-    animation:dotBounce .9s ease-in-out infinite; }
-  .gpt-dot:nth-child(2) { animation-delay:.15s; }
-  .gpt-dot:nth-child(3) { animation-delay:.3s; }
-
-  /* ── Image preview (above input) ── */
-  .gpt-preview { max-width:720px; margin:0 auto; padding:0 16px 6px;
-    display:flex; align-items:center; gap:8px; }
-  .gpt-preview-thumb { height:44px; width:44px; object-fit:cover; border-radius:7px;
-    border:1px solid var(--border); }
-  .gpt-preview-del { position:absolute; top:-5px; right:-5px; width:16px; height:16px;
-    border-radius:50%; border:none; background:#ef4444; color:#fff; cursor:pointer;
-    display:flex; align-items:center; justify-content:center; padding:0; }
-
-  /* ── Floating input ── */
-  .gpt-bar-wrap { padding:0 16px 14px; padding-bottom:max(14px,env(safe-area-inset-bottom)); flex-shrink:0; }
-  .gpt-bar      { max-width:720px; margin:0 auto; background:var(--surface);
-    border:1px solid var(--border); border-radius:16px;
-    box-shadow:0 2px 12px rgba(0,0,0,.07), 0 0 0 1px rgba(0,0,0,.04);
-    overflow:hidden; }
-  .gpt-bar-main { display:flex; align-items:flex-end; gap:0; padding:10px 10px 10px 14px; }
-  .gpt-textarea { flex:1; resize:none; border:none; background:transparent;
-    font-size:14px; color:var(--text); outline:none; line-height:1.55;
-    max-height:160px; overflow-y:auto; padding:0; font-family:inherit; }
-  .gpt-textarea::placeholder { color:var(--muted); }
-
-  /* ── Input icon buttons ── */
-  .gpt-icn { width:32px; height:32px; border-radius:8px; border:none; background:transparent;
-    color:var(--muted); cursor:pointer; display:flex; align-items:center; justify-content:center;
-    transition:background .12s,color .12s; flex-shrink:0; }
-  .gpt-icn:hover { background:var(--active); color:var(--text); }
-  .gpt-icn-active { background:var(--active); color:var(--text); }
-  .gpt-icn-rec    { color:#ef4444; }
-  .gpt-icn-send   { background:var(--text); color:#fff; border-radius:8px; }
-  .gpt-icn-send:disabled { background:var(--border); color:var(--muted); cursor:default; }
-  .gpt-icn-call-on { color:#dc2626; }
-
-  /* ── Attach popover ── */
-  .gpt-attach { position:relative; flex-shrink:0; }
-  .gpt-popover { position:absolute; bottom:calc(100% + 6px); left:0;
-    background:var(--surface); border:1px solid var(--border); border-radius:10px;
-    box-shadow:0 4px 20px rgba(0,0,0,.1); overflow:hidden; min-width:150px;
-    animation:fadeUp .14s ease; z-index:50; }
-  .gpt-pop-item { display:flex; align-items:center; gap:8px; padding:9px 13px;
-    font-size:12px; font-weight:500; color:var(--text); cursor:pointer;
-    transition:background .1s; white-space:nowrap; border:none; background:none; width:100%; }
-  .gpt-pop-item:hover { background:var(--active); }
-  .gpt-pop-item + .gpt-pop-item { border-top:1px solid var(--border); }
-
-  /* Recording indicator */
-  .rec-dot   { width:7px; height:7px; border-radius:50%; background:#ef4444; animation:recPulse 1s ease-in-out infinite; flex-shrink:0; }
-  .rec-label { font-size:12px; color:#ef4444; }
-  .gpt-rec-bar { display:flex; align-items:center; gap:6px; padding:0 14px 10px; }
-
-  /* ── Orbs ── */
-  .suus-orb { position:relative; width:68px; height:68px;
-    animation:orbMorph 9s cubic-bezier(.45,.05,.55,.95) infinite;
-    overflow:hidden; isolation:isolate;
-    box-shadow:0 2px 20px rgba(var(--brand-rgb),.12),0 1px 5px rgba(0,0,0,.06); }
-  .suus-orb::before { content:''; position:absolute; inset:-30%;
-    background:conic-gradient(from 0deg,#fff 0%,#f5f0ff 15%,#ede0ff 28%,#fff 42%,#f5f0ff 56%,#ede0ff 70%,#fff 100%);
-    animation:orbSpin 8s linear infinite; }
-  .suus-orb::after  { content:''; position:absolute; inset:0;
-    background:radial-gradient(ellipse at 35% 30%,rgba(255,255,255,.95) 0%,transparent 55%),
-               radial-gradient(ellipse at 70% 75%,rgba(var(--brand-rgb),.08) 0%,transparent 45%);
-    animation:orbInner 12s ease-in-out infinite; }
-  .suus-orb-active { animation:orbMorph 3s cubic-bezier(.45,.05,.55,.95) infinite !important; }
-  .suus-orb-active::before { animation:orbSpin 2s linear infinite !important; }
-  .suus-orb-active::after  { animation:orbInner 3s ease-in-out infinite !important; }
-
-  /* Avatar orb (small, square-ish) */
-  .suus-av { position:relative; width:26px; height:26px; border-radius:6px; flex-shrink:0; margin-top:1px;
-    overflow:hidden; isolation:isolate;
-    box-shadow:0 1px 6px rgba(var(--brand-rgb),.18); }
-  .suus-av::before { content:''; position:absolute; inset:-30%;
-    background:conic-gradient(from 0deg,#fff 0%,#f5f0ff 15%,#ede0ff 28%,#fff 42%,#f5f0ff 56%,#ede0ff 70%,#fff 100%);
-    animation:orbSpin 8s linear infinite; }
-  .suus-av::after { content:''; position:absolute; inset:0;
-    background:radial-gradient(ellipse at 35% 30%,rgba(255,255,255,.95) 0%,transparent 55%),
-               radial-gradient(ellipse at 70% 75%,rgba(var(--brand-rgb),.08) 0%,transparent 45%);
-    animation:orbInner 12s ease-in-out infinite; }
-  .suus-av-active::before { animation:orbSpin 1.5s linear infinite !important; }
-
-  /* ── Call overlay ── */
-  .sc-call-overlay { position:fixed; inset:0; z-index:200; display:flex; align-items:center;
-    justify-content:center; background:rgba(0,0,0,.45);
-    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); animation:fadeUp .2s ease; }
-  .sc-call-card { background:var(--surface); border-radius:22px; padding:36px 28px 28px;
-    width:296px; display:flex; flex-direction:column; align-items:center;
-    border:1px solid var(--border); box-shadow:0 24px 60px rgba(0,0,0,.18); }
-  .call-ring { position:absolute; inset:0; border-radius:50%;
-    border:2px solid rgba(var(--brand-rgb),.35);
-    animation:ringPulse 1.6s ease-out infinite; pointer-events:none; }
-  .call-ring-2 { animation-delay:.5s; }
-  .wave-bar  { height:4px; transition:background .3s; }
-  .wave-active { animation:waveAnim .6s ease-in-out infinite; }
-  .wave-user   { animation:waveUser .8s ease-in-out infinite; }
-
-  /* ── Contact form modal ── */
-  .sc-modal { position:fixed; inset:0; z-index:300; background:rgba(0,0,0,.35);
-    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
-    display:flex; align-items:flex-start; justify-content:center;
-    padding:40px 16px; overflow-y:auto; animation:fadeUp .18s ease; }
-
-  /* ── Mobile ── */
-  @media (max-width:600px) {
-    .gpt-inner  { padding:16px 12px 12px; }
-    .gpt-chips  { grid-template-columns:1fr; }
-    .gpt-bar-wrap { padding:0 10px 12px; padding-bottom:max(12px,env(safe-area-inset-bottom)); }
-    .gpt-user-bubble { max-width:85%; }
-    .gpt-empty h2 { font-size:18px; }
-    .sc-modal { padding:20px 10px; }
-  }
-`
-
-function OrbAvatar({ active = false }: { active?: boolean }) {
-  return <div className={`suus-av${active ? ' suus-av-active' : ''}`} />
-}
-
-function OrbLg({ active = false }: { active?: boolean }) {
-  return <div className={`suus-orb${active ? ' suus-orb-active' : ''}`} />
+function OrbAvatar({ agentState }: { agentState: AgentState }) {
+  const active = agentState === 'talking'
+  const listening = agentState === 'listening'
+  return (
+    <div className="w-[26px] h-[26px] rounded-[6px] flex-shrink-0 mt-px flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600 overflow-hidden">
+      <div className="flex items-end gap-[2px]">
+        {[5, 9, 7, 11, 6].map((h, i) => (
+          <div
+            key={i}
+            className={cn(
+              'w-[2px] rounded-full bg-white/90',
+              active ? 'animate-wave-agent' : listening ? 'animate-wave-user' : '',
+            )}
+            style={{
+              height: active || listening ? h : 3,
+              animationDelay: `${i * 0.1}s`,
+              transition: 'height 0.3s ease',
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function TypingDots() {
   return (
-    <div className="gpt-dots">
-      <div className="gpt-dot" />
-      <div className="gpt-dot" />
-      <div className="gpt-dot" />
+    <div className="flex gap-1 items-center py-1">
+      {[0, 150, 300].map(delay => (
+        <div
+          key={delay}
+          className="w-1.5 h-1.5 rounded-full bg-muted animate-dot-bounce"
+          style={{ animationDelay: `${delay}ms` }}
+        />
+      ))}
     </div>
   )
 }
@@ -228,6 +87,7 @@ function useCallTimer(active: boolean) {
   return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`
 }
 
+/* ─── Page ───────────────────────────────────────────────────────── */
 export default function SuusPage() {
   const [msgs,         setMsgs]         = useState<Msg[]>([])
   const [input,        setInput]        = useState('')
@@ -237,17 +97,20 @@ export default function SuusPage() {
   const [agentTalking, setAgentTalking] = useState(false)
   const [userTalking,  setUserTalking]  = useState(false)
   const [muted,        setMuted]        = useState(false)
-  const [attachOpen,   setAttachOpen]   = useState(false)
-  const [pendingImage, setPendingImage] = useState<{ url: string; base64: string } | null>(null)
-  const [recording,    setRecording]    = useState(false)
-  const [transcribing, setTranscribing] = useState(false)
-  const [modalForm,    setModalForm]    = useState<{ data: ContactFormPrefilled; msgIdx: number } | null>(null)
+  const [attachOpen,      setAttachOpen]      = useState(false)
+  const [pendingImage,    setPendingImage]    = useState<{ url: string; base64: string } | null>(null)
+  const [modalForm,       setModalForm]       = useState<{ data: ContactFormPrefilled; msgIdx: number } | null>(null)
+  const [dictating,       setDictating]       = useState(false)
+  const [transcribingVoice, setTranscribingVoice] = useState(false)
+  const dictRecorderRef  = useRef<MediaRecorder | null>(null)
+  const dictChunksRef    = useRef<Blob[]>([])
 
   const { activeEmployee } = useEmployee()
   const imageInputRef    = useRef<HTMLInputElement>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef   = useRef<Blob[]>([])
-  const retellRef        = useRef<RetellWebClient | null>(null)
+  const pcRef            = useRef<RTCPeerConnection | null>(null)
+  const dcRef            = useRef<RTCDataChannel | null>(null)
+  const localStreamRef   = useRef<MediaStream | null>(null)
+  const audioElRef       = useRef<HTMLAudioElement | null>(null)
   const bottomRef        = useRef<HTMLDivElement>(null)
   const textareaRef      = useRef<HTMLTextAreaElement>(null)
   const attachRef        = useRef<HTMLDivElement>(null)
@@ -255,7 +118,6 @@ export default function SuusPage() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
 
-  // Close attach popover on outside click
   useEffect(() => {
     if (!attachOpen) return
     const h = (e: MouseEvent) => {
@@ -271,7 +133,52 @@ export default function SuusPage() {
     el.style.height = Math.min(el.scrollHeight, 160) + 'px'
   }
 
-  // Paste image
+  async function startDictate() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      dictChunksRef.current = []
+      mr.ondataavailable = e => { if (e.data.size > 0) dictChunksRef.current.push(e.data) }
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(dictChunksRef.current, { type: 'audio/webm' })
+        setTranscribingVoice(true)
+        try {
+          const fd = new FormData()
+          fd.append('audio', blob, 'recording.webm')
+          const res  = await fetch('/api/suus/transcribe', { method: 'POST', body: fd })
+          const data = await res.json() as { text?: string }
+          if (data.text) {
+            setInput(prev => prev ? `${prev} ${data.text}` : data.text!)
+            setTimeout(resizeTextarea, 0)
+            textareaRef.current?.focus()
+          }
+        } catch { /* ignore */ } finally { setTranscribingVoice(false) }
+      }
+      mr.start()
+      dictRecorderRef.current = mr
+      setDictating(true)
+    } catch { alert('Microfoon toegang vereist.') }
+  }
+
+  function stopDictate() {
+    dictRecorderRef.current?.stop()
+    dictRecorderRef.current = null
+    setDictating(false)
+  }
+
+  function cancelDictate() {
+    if (dictRecorderRef.current) {
+      dictRecorderRef.current.ondataavailable = null
+      dictRecorderRef.current.onstop = null
+      dictRecorderRef.current.stop()
+      dictRecorderRef.current = null
+    }
+    dictChunksRef.current = []
+    setDictating(false)
+    setTranscribingVoice(false)
+  }
+
   useEffect(() => {
     const h = (e: ClipboardEvent) => {
       const item = Array.from(e.clipboardData?.items ?? []).find(i => i.type.startsWith('image/'))
@@ -294,7 +201,7 @@ export default function SuusPage() {
     setAttachOpen(false)
   }
 
-  // ── Send ────────────────────────────────────────────────────────────────────
+  /* ── Send ─────────────────────────────────────────────────────── */
   const sendMessage = useCallback(async (text: string, imageUrl?: string) => {
     if (!text.trim() && !imageUrl) return
     setInput(''); setPendingImage(null)
@@ -358,111 +265,175 @@ export default function SuusPage() {
     }
   }, [sessionId, activeEmployee])
 
-  // ── Audio ───────────────────────────────────────────────────────────────────
-  async function startRecording() {
-    setAttachOpen(false)
+  /* ── Realtime / WebRTC ────────────────────────────────────────── */
+  function sendRealtimeEvent(event: unknown) {
+    if (dcRef.current?.readyState === 'open') dcRef.current.send(JSON.stringify(event))
+  }
+
+  async function executeTool(item: { call_id: string; name: string; arguments: string }) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mr = new MediaRecorder(stream)
-      audioChunksRef.current = []
-      mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        setTranscribing(true)
-        try {
-          const fd = new FormData(); fd.append('audio', blob, 'recording.webm')
-          const res  = await fetch('/api/suus/transcribe', { method: 'POST', body: fd })
-          const data = await res.json()
-          if (data.text) { setInput(data.text); setTimeout(resizeTextarea, 0) }
-        } catch { /**/ } finally { setTranscribing(false) }
-      }
-      mr.start(); mediaRecorderRef.current = mr; setRecording(true)
-    } catch { alert('Microfoon toegang vereist.') }
-  }
-
-  function stopRecording() {
-    mediaRecorderRef.current?.stop()
-    mediaRecorderRef.current = null
-    setRecording(false)
-  }
-
-  // ── Call ────────────────────────────────────────────────────────────────────
-  async function toggleCall() {
-    if (calling) {
-      retellRef.current?.stopCall(); retellRef.current = null
-      setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false); setMuted(false)
-      return
+      const args = JSON.parse(item.arguments || '{}')
+      const res = await fetch('/api/suus/tool-call', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: item.name, args }),
+      })
+      const { result } = await res.json()
+      sendRealtimeEvent({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: item.call_id, output: JSON.stringify(result) } })
+      sendRealtimeEvent({ type: 'response.create' })
+    } catch (err) {
+      console.error('[voice/tool]', err)
+      sendRealtimeEvent({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: item.call_id, output: JSON.stringify({ error: String(err) }) } })
+      sendRealtimeEvent({ type: 'response.create' })
     }
+  }
+
+  function handleRealtimeEvent(e: MessageEvent) {
+    try {
+      const ev = JSON.parse(e.data as string) as { type: string; item?: { type: string; call_id: string; name: string; arguments: string } }
+      switch (ev.type) {
+        case 'input_audio_buffer.speech_started': setUserTalking(true);  break
+        case 'input_audio_buffer.speech_stopped': setUserTalking(false); break
+        case 'response.audio.delta':              setAgentTalking(true);  break
+        case 'response.audio.done':               setAgentTalking(false); break
+        case 'response.output_item.done':
+          if (ev.item?.type === 'function_call') executeTool(ev.item as { call_id: string; name: string; arguments: string })
+          break
+        case 'error': console.error('[voice/realtime]', ev); break
+      }
+    } catch { /* ignore */ }
+  }
+
+  function stopCall() {
+    dcRef.current?.close(); dcRef.current = null
+    pcRef.current?.close(); pcRef.current = null
+    localStreamRef.current?.getTracks().forEach(t => t.stop()); localStreamRef.current = null
+    if (audioElRef.current) { audioElRef.current.srcObject = null; audioElRef.current = null }
+    setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false); setMuted(false)
+  }
+
+  async function toggleCall() {
+    if (calling) { stopCall(); return }
     setCalling(true); setCallStatus('connecting')
     try {
-      const res  = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId }) })
-      const data = await res.json()
-      if (!data.access_token) throw new Error(data.error ?? 'No access token')
-      const client = new RetellWebClient(); retellRef.current = client
-      client.on('call_started',        () => setCallStatus('active'))
-      client.on('call_ended',          () => { setCalling(false); setCallStatus('idle') })
-      client.on('agent_start_talking', () => setAgentTalking(true))
-      client.on('agent_stop_talking',  () => setAgentTalking(false))
-      client.on('user_start_talking',  () => setUserTalking(true))
-      client.on('user_stop_talking',   () => setUserTalking(false))
-      client.on('error',               () => { setCalling(false); setCallStatus('idle') })
-      await client.startCall({ accessToken: data.access_token })
-    } catch { setCalling(false); setCallStatus('idle') }
+      const res  = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, employee_id: activeEmployee?.id }) })
+      const data = await res.json() as { client_secret?: { value: string }; error?: string }
+      if (!data.client_secret?.value) throw new Error(data.error ?? 'No client secret')
+      const pc = new RTCPeerConnection(); pcRef.current = pc
+      pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') stopCall() }
+      const audioEl = new Audio(); audioEl.autoplay = true; audioElRef.current = audioEl
+      pc.ontrack = e => { audioEl.srcObject = e.streams[0] }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      localStreamRef.current = stream; stream.getTracks().forEach(t => pc.addTrack(t, stream))
+      const dc = pc.createDataChannel('oai-events'); dcRef.current = dc
+      dc.onopen = () => setCallStatus('active'); dc.onclose = () => { if (calling) stopCall() }; dc.onmessage = handleRealtimeEvent
+      const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
+      const sdpRes = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview', { method: 'POST', headers: { Authorization: `Bearer ${data.client_secret.value}`, 'Content-Type': 'application/sdp' }, body: offer.sdp })
+      if (!sdpRes.ok) throw new Error(`SDP exchange failed: ${sdpRes.status}`)
+      await pc.setRemoteDescription({ type: 'answer', sdp: await sdpRes.text() })
+    } catch (err) { console.error('[voice]', err); stopCall() }
   }
 
   function toggleMute() {
-    const c = retellRef.current as RetellWebClient & { mute?: (m: boolean) => void } | null
-    if (!c) return
-    const next = !muted; c.mute?.(next); setMuted(next)
+    const stream = localStreamRef.current; if (!stream) return
+    const next = !muted; stream.getTracks().forEach(t => { t.enabled = !next }); setMuted(next)
   }
 
   const hasContent = !!(input.trim() || pendingImage)
 
+  /* ── Render ───────────────────────────────────────────────────── */
   return (
-    <div className="gpt-wrap">
-      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+    <div className="flex flex-col bg-bg" style={{ height: 'calc(100vh - 80px)' }}>
 
-      {/* ── Call overlay ── */}
+      {/* ── Call overlay ─────────────────────────────────────────── */}
       {calling && (
-        <div className="sc-call-overlay">
-          <div className="sc-call-card">
-            <div style={{ position: 'relative', marginBottom: '24px' }}>
-              {agentTalking && (<><div className="call-ring" /><div className="call-ring call-ring-2" /></>)}
-              <OrbLg active={agentTalking} />
-            </div>
-            <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-.03em', marginBottom: '4px' }}>SUUS</div>
-            <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '22px', minHeight: '18px' }}>
-              {callStatus === 'connecting'
-                ? 'Verbinden…'
-                : agentTalking ? <span style={{ color: 'var(--brand)', fontWeight: 500 }}>Spreekt…</span>
-                : userTalking  ? <span style={{ color: '#16a34a', fontWeight: 500 }}>Luistert…</span>
-                : timer}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '24px', marginBottom: '28px' }}>
-              {[0,1,2,3,4,5,6].map(i => (
-                <div key={i}
-                  className={agentTalking ? 'wave-bar wave-active' : userTalking ? 'wave-bar wave-user' : 'wave-bar'}
-                  style={{ width: '3px', borderRadius: '2px', background: agentTalking ? 'var(--brand)' : userTalking ? '#16a34a' : 'var(--border)', animationDelay: `${i * 0.08}s` }}
+        <>
+          {/* ── Desktop overlay (md+) ──────────────────────────────── */}
+          <div className="fixed inset-0 z-[200] hidden md:flex flex-col bg-black/45 backdrop-blur-md animate-fade-up">
+            <div className="flex-1 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <VoiceOrb
+                  state={toOrbState(agentTalking ? 'talking' : userTalking ? 'listening' : null, callStatus)}
+                  size={150}
                 />
-              ))}
+                <p className="text-base font-bold tracking-tight text-white">SUUS</p>
+                <p className="text-xs text-white/60 min-h-[18px]">
+                  {callStatus === 'connecting'
+                    ? 'Verbinden…'
+                    : agentTalking ? <span className="text-blue-300 font-medium">Spreekt…</span>
+                    : userTalking  ? <span className="text-green-400 font-medium">Luistert…</span>
+                    : timer}
+                </p>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '18px', alignItems: 'center' }}>
-              <button onClick={toggleMute} style={{ width: '48px', height: '48px', borderRadius: '50%', border: '1px solid var(--border)', background: muted ? '#fef2f2' : 'var(--bg)', color: muted ? '#dc2626' : 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {muted ? <MicOff size={18} strokeWidth={1.75} /> : <Mic size={18} strokeWidth={1.75} />}
-              </button>
-              <button onClick={toggleCall} style={{ width: '58px', height: '58px', borderRadius: '50%', border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 14px rgba(220,38,38,.35)' }}>
-                <PhoneOff size={22} strokeWidth={2} />
-              </button>
-              <div style={{ width: '48px' }} />
+            {/* Desktop call input bar */}
+            <div className="px-4 pb-[max(24px,env(safe-area-inset-bottom))] flex-shrink-0">
+              <div className="max-w-[760px] mx-auto">
+                <div className="flex items-center gap-2 px-3 py-3 border border-white/20 rounded-[28px] bg-white/10 backdrop-blur-sm">
+                  <textarea
+                    value={input}
+                    onChange={e => { setInput(e.target.value); resizeTextarea() }}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input, pendingImage?.base64) } }}
+                    placeholder="Typ een bericht…"
+                    rows={1}
+                    className="flex-1 resize-none border-none bg-transparent text-[16px] text-white outline-none leading-[1.4] max-h-32 overflow-y-auto p-0 font-[inherit] placeholder:text-white/40"
+                  />
+                  <button
+                    onClick={toggleMute}
+                    className={cn(
+                      'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors',
+                      muted ? 'bg-red-500/30 text-red-300' : 'bg-white/10 text-white/70 hover:bg-white/20',
+                    )}
+                  >
+                    {muted ? <MicOff size={18} strokeWidth={1.75} /> : <Mic size={18} strokeWidth={1.75} />}
+                  </button>
+                  {input.trim() ? (
+                    <button onClick={() => sendMessage(input, pendingImage?.base64)} className="w-10 h-10 rounded-full bg-white text-primary flex items-center justify-center flex-shrink-0 hover:opacity-85">
+                      <ArrowUp size={16} strokeWidth={2.5} />
+                    </button>
+                  ) : (
+                    <button onClick={toggleCall} className="flex items-center gap-2 pl-3 pr-4 h-10 bg-red-600 text-white rounded-full flex-shrink-0 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,.4)]">
+                      <div className="flex items-center gap-[2px]">
+                        {[8,13,10,16,9,13,8].map((h, i) => (
+                          <div key={i} className="w-[2.5px] rounded-full bg-white animate-dict-wave" style={{ height: `${h}px`, animationDelay: `${i * 0.08}s` }} />
+                        ))}
+                      </div>
+                      <span className="text-[13px] font-semibold">Ophangen</span>
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* ── Mobile: status banner at top ───────────────────────── */}
+          <div className="md:hidden flex items-center gap-2.5 px-4 py-2.5 bg-black/80 backdrop-blur-sm animate-fade-up flex-shrink-0 z-10">
+            <VoiceOrb
+              state={toOrbState(agentTalking ? 'talking' : userTalking ? 'listening' : null, callStatus)}
+              size={32}
+            />
+            <span className="text-[13px] font-medium text-white flex-1 truncate">
+              {callStatus === 'connecting'
+                ? 'Verbinden met SUUS…'
+                : agentTalking ? 'SUUS spreekt…'
+                : userTalking  ? 'SUUS luistert…'
+                : `SUUS · ${timer}`}
+            </span>
+            <button onClick={toggleMute} className={cn('w-7 h-7 rounded-full flex items-center justify-center', muted ? 'bg-red-500/40 text-red-300' : 'text-white/60')}>
+              {muted ? <MicOff size={14} /> : <Mic size={14} />}
+            </button>
+            <button onClick={toggleCall} className="flex items-center gap-1.5 px-3 h-7 bg-red-600 text-white text-[12px] font-semibold rounded-full">
+              Ophangen
+            </button>
+          </div>
+        </>
       )}
 
-      {/* ── Contact form modal ── */}
+      {/* ── Contact form modal ───────────────────────────────────── */}
       {modalForm && (
-        <div className="sc-modal" onClick={e => { if (e.target === e.currentTarget) setModalForm(null) }}>
+        <div
+          className="fixed inset-0 z-[300] bg-black/35 backdrop-blur-md flex items-start justify-center px-4 py-10 overflow-y-auto animate-fade-up"
+          onClick={e => { if (e.target === e.currentTarget) setModalForm(null) }}
+        >
           <ContactForm
             prefilled={modalForm.data}
             onSuccess={(contactId, company) => {
@@ -476,8 +447,7 @@ export default function SuusPage() {
               ).concat([{ role: 'ai', text: wasEdit ? `✅ ${company} bijgewerkt in GHL.` : `✅ ${company} aangemaakt in GHL.` }]))
               bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
               fetch('/api/suus/save-message', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ session_id: sessionId, role: 'assistant', content: successText }),
               }).catch(() => {})
             }}
@@ -486,21 +456,41 @@ export default function SuusPage() {
         </div>
       )}
 
-      {/* ── Feed ── */}
-      <div className="gpt-feed">
-        <div className="gpt-inner">
+      {/* ── Message feed ─────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
+        <div className="max-w-[720px] mx-auto px-4 pt-6 pb-4 flex flex-col max-sm:px-3 relative">
+
+          {/* Handsfree button — top-right inside chat width, always visible */}
+          {!calling && (
+            <div className="absolute top-4 right-4 max-sm:right-3 z-10">
+              <button
+                onClick={toggleCall}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-[12px] font-medium rounded-full hover:opacity-85 transition-opacity"
+              >
+                <Phone size={13} strokeWidth={2} />
+                Bellen
+              </button>
+            </div>
+          )}
 
           {/* Empty state */}
           {msgs.length === 0 && (
-            <div className="gpt-empty">
-              <OrbLg />
-              <div style={{ textAlign: 'center' }}>
-                <h2>Hoi! Ik ben SUUS.</h2>
-                <p>Stel een vraag, stuur een foto of start een gesprek</p>
+            <div className="flex flex-col items-center gap-5 pt-16 pb-8 animate-fade-up">
+              <div className="text-center">
+                <h2 className="text-[22px] font-bold tracking-tight text-primary mb-1 max-sm:text-lg">
+                  Hoi! Ik ben SUUS.
+                </h2>
+                <p className="text-[13px] text-muted">Stel een vraag, stuur een foto of start een gesprek</p>
               </div>
-              <div className="gpt-chips">
+              <div className="grid grid-cols-2 gap-2 w-full max-w-[420px] max-sm:grid-cols-1">
                 {SUGGESTIONS.map(s => (
-                  <button key={s} className="gpt-chip" onClick={() => sendMessage(s)}>{s}</button>
+                  <button
+                    key={s}
+                    onClick={() => sendMessage(s)}
+                    className="px-3.5 py-2.5 rounded-[10px] border border-border bg-surface text-xs font-medium text-primary text-left leading-snug transition-colors hover:bg-active"
+                  >
+                    {s}
+                  </button>
                 ))}
               </div>
             </div>
@@ -508,27 +498,28 @@ export default function SuusPage() {
 
           {/* Messages */}
           {msgs.map((m, i) => (
-            <div key={i} className="gpt-row">
+            <div key={i} className="py-1.5 animate-msg-in">
               {m.role === 'user' ? (
-                /* ── User bubble ── */
-                <div className="gpt-user">
-                  <div className="gpt-user-bubble">
-                    {m.image_url && <img src={m.image_url} alt="bijlage" className="gpt-user-img" />}
+                /* User bubble */
+                <div className="flex justify-end">
+                  <div className="bg-active text-primary rounded-[18px_18px_4px_18px] px-3.5 py-2.5 text-sm leading-relaxed max-w-[75%] whitespace-pre-wrap break-words max-sm:max-w-[85%]">
+                    {m.image_url && (
+                      <img src={m.image_url} alt="bijlage" className="max-w-[200px] max-h-[150px] rounded-lg object-cover block mb-1.5" />
+                    )}
                     {m.text}
                   </div>
                 </div>
               ) : (
-                /* ── AI row ── */
-                <div className="gpt-ai">
-                  <OrbAvatar active={!!m.streaming} />
-                  <div className="gpt-ai-body">
-                    {/* Typing dots while streaming with no text yet */}
+                /* AI row */
+                <div className="flex gap-3 items-start">
+                  <OrbAvatar agentState={m.streaming ? 'talking' : null} />
+                  <div className="flex-1 min-w-0 pt-0.5">
                     {m.streaming && !m.text && <TypingDots />}
-                    {/* Text */}
-                    {m.text && <p className="gpt-ai-text">{m.text}</p>}
-                    {/* Rich cards */}
+                    {m.text && (
+                      <p className="text-sm leading-[1.65] text-primary whitespace-pre-wrap break-words">{m.text}</p>
+                    )}
                     {(m.briefingData || m.formData || (m.contactsData && m.contactsData.length > 0)) && (
-                      <div className="gpt-ai-cards">
+                      <div className="mt-2.5 flex flex-col gap-2">
                         {m.briefingData && <BriefingCard data={m.briefingData} />}
                         {m.formData && (
                           <ContactFormCard
@@ -562,96 +553,145 @@ export default function SuusPage() {
         </div>
       </div>
 
-      {/* ── Image preview above bar ── */}
+      {/* ── Image preview ────────────────────────────────────────── */}
       {pendingImage && (
-        <div className="gpt-preview">
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <img src={pendingImage.url} alt="preview" className="gpt-preview-thumb" />
-            <button className="gpt-preview-del" onClick={() => setPendingImage(null)}>
+        <div className="max-w-[720px] mx-auto px-4 pb-1.5 flex items-center gap-2">
+          <div className="relative inline-block">
+            <img src={pendingImage.url} alt="preview" className="h-11 w-11 object-cover rounded-lg border border-border" />
+            <button
+              onClick={() => setPendingImage(null)}
+              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center border-none"
+            >
               <X size={9} />
             </button>
           </div>
-          <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Afbeelding bijgevoegd</span>
+          <span className="text-[11px] text-muted">Afbeelding bijgevoegd</span>
         </div>
       )}
 
-      {/* ── Floating input bar ── */}
-      <div className="gpt-bar-wrap">
-        <div className="gpt-bar">
+      {/* ── Mobile: orb above input bar during call ─────────────── */}
+      {calling && (
+        <div className="md:hidden flex justify-center pb-2 flex-shrink-0">
+          <VoiceOrb
+            state={toOrbState(agentTalking ? 'talking' : userTalking ? 'listening' : null, callStatus)}
+            size={72}
+          />
+        </div>
+      )}
 
-          {/* Recording indicator strip */}
-          {(recording || transcribing) && (
-            <div className="gpt-rec-bar">
-              <div className="rec-dot" />
-              <span className="rec-label">{transcribing ? 'Transcriberen…' : 'Opname…'}</span>
+      {/* ── Input bar ────────────────────────────────────────────── */}
+      <div className="px-4 pb-[max(16px,env(safe-area-inset-bottom))] flex-shrink-0 max-sm:px-3">
+        <div className="max-w-[760px] mx-auto">
+
+          {dictating || transcribingVoice ? (
+            /* ── Waveform recording bar ─────────────────────────── */
+            <div className="flex items-center gap-3 px-4 py-4 border border-border rounded-[28px] bg-surface shadow-[0_2px_12px_rgba(0,0,0,.07),0_0_0_1px_rgba(0,0,0,.03)]">
+              {/* Waveform */}
+              <div className="flex-1 flex items-center justify-center gap-[3px] h-9 overflow-hidden">
+                {[4,7,12,18,24,20,14,9,16,22,26,20,12,7,4,9,16,22,18,12,7,4,9,16,22,26,20,14,9,4,7,14,20,24,18,12,7,4,9,16,20,15,11,7,4,9,14,9].map((h, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      'w-[3px] rounded-full origin-center transition-all',
+                      transcribingVoice ? 'bg-muted/40' : 'bg-primary animate-dict-wave',
+                    )}
+                    style={{
+                      height: `${h}px`,
+                      animationDelay: transcribingVoice ? undefined : `${(i * 0.045) % 0.7}s`,
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Cancel */}
+              <button
+                onClick={cancelDictate}
+                title="Annuleer opname"
+                className="w-9 h-9 rounded-full flex items-center justify-center text-muted hover:text-red-500 transition-colors flex-shrink-0"
+              >
+                <X size={18} strokeWidth={2} />
+              </button>
+
+              {/* Confirm / transcribe */}
+              <button
+                onClick={stopDictate}
+                disabled={transcribingVoice}
+                title="Stop en transcribeer"
+                className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:opacity-85 transition-opacity disabled:opacity-40 flex-shrink-0"
+              >
+                <Check size={16} strokeWidth={2.5} />
+              </button>
+            </div>
+          ) : (
+            /* ── Normal pill ─────────────────────────────────────── */
+            <div className="flex items-center gap-3 px-4 py-4 border border-border rounded-[28px] bg-surface shadow-[0_2px_12px_rgba(0,0,0,.07),0_0_0_1px_rgba(0,0,0,.03)] hover:shadow-[0_4px_18px_rgba(0,0,0,.1)] transition-shadow">
+
+              {/* Left: attach / plus */}
+              <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageFile} className="hidden" />
+              <div className="relative flex-shrink-0" ref={attachRef}>
+                {attachOpen && (
+                  <div className="absolute bottom-[calc(100%+8px)] left-0 bg-surface border border-border rounded-[12px] shadow-panel overflow-hidden min-w-[140px] animate-fade-up z-50">
+                    <button
+                      className="flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-primary w-full hover:bg-active transition-colors border-none bg-transparent"
+                      onClick={() => imageInputRef.current?.click()}
+                    >
+                      <ImageIcon size={13} className="text-muted" /> Afbeelding
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={() => setAttachOpen(p => !p)}
+                  title="Bijlage toevoegen"
+                  className={cn(
+                    'w-8 h-8 rounded-full flex items-center justify-center text-secondary hover:text-primary transition-colors',
+                    pendingImage && 'text-primary',
+                  )}
+                >
+                  <Plus size={22} strokeWidth={1.5} />
+                </button>
+              </div>
+
+              {/* Textarea */}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={e => { setInput(e.target.value); resizeTextarea() }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input, pendingImage?.base64) } }}
+              placeholder="Vraag SUUS iets..."
+              rows={1}
+              className="flex-1 resize-none border-none bg-transparent text-[16px] text-primary outline-none leading-[1.55] max-h-40 overflow-y-auto p-0 font-[inherit] placeholder:text-muted"
+              />
+
+              {/* Right icons */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Dictate button */}
+                <button
+                  onClick={startDictate}
+                  title="Dicteer bericht"
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-muted hover:text-primary transition-colors"
+                >
+                  <Mic size={20} strokeWidth={1.5} />
+                </button>
+
+                {/* Send / call button */}
+                <button
+                  onClick={() => { if (hasContent) sendMessage(input, pendingImage?.base64); else toggleCall() }}
+                  title={hasContent ? 'Versturen (Enter)' : 'Bellen met SUUS'}
+                  className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:opacity-85 transition-opacity"
+                >
+                  {hasContent
+                    ? <ArrowUp size={17} strokeWidth={2.5} />
+                    : <AudioLines size={17} strokeWidth={2} />
+                  }
+                </button>
+              </div>
             </div>
           )}
 
-          <div className="gpt-bar-main">
-            {/* Attach */}
-            <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageFile} style={{ display: 'none' }} />
-            <div className="gpt-attach" ref={attachRef}>
-              {attachOpen && (
-                <div className="gpt-popover">
-                  <button className="gpt-pop-item" onClick={() => imageInputRef.current?.click()}>
-                    <Image size={13} style={{ color: 'var(--muted)' }} /> Afbeelding
-                  </button>
-                  <button className="gpt-pop-item"
-                    onClick={recording ? stopRecording : startRecording}
-                    style={recording ? { color: '#ef4444' } : undefined}
-                  >
-                    <Mic2 size={13} style={{ color: recording ? '#ef4444' : 'var(--muted)' }} />
-                    {recording ? 'Stop opname' : 'Spraakbericht'}
-                  </button>
-                </div>
-              )}
-              <button
-                className={`gpt-icn${pendingImage || recording ? ' gpt-icn-active' : ''}${recording ? ' gpt-icn-rec' : ''}`}
-                onClick={() => setAttachOpen(p => !p)}
-                title="Bijlage"
-              >
-                {recording ? <StopCircle size={16} /> : <Paperclip size={16} />}
-              </button>
-            </div>
-
-            {/* Textarea */}
-            <textarea
-              ref={textareaRef}
-              className="gpt-textarea"
-              value={input}
-              onChange={e => { setInput(e.target.value); resizeTextarea() }}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input, pendingImage?.base64) } }}
-              placeholder={transcribing ? 'Transcriberen…' : 'Vraag iets aan SUUS…'}
-              rows={1}
-              disabled={recording || transcribing}
-              style={{ color: (recording || transcribing) ? 'transparent' : undefined }}
-            />
-
-            {/* Call button */}
-            <button
-              className={`gpt-icn${calling ? ' gpt-icn-call-on' : ''}`}
-              onClick={toggleCall}
-              title={calling ? 'Ophangen' : 'Bellen met SUUS'}
-            >
-              {calling ? <PhoneOff size={16} /> : <Phone size={16} />}
-            </button>
-
-            {/* Send */}
-            <button
-              className="gpt-icn gpt-icn-send"
-              onClick={() => sendMessage(input, pendingImage?.base64)}
-              disabled={!hasContent}
-              title="Versturen (Enter)"
-            >
-              <ArrowUp size={15} strokeWidth={2.5} />
-            </button>
-          </div>
+          <p className="text-center text-[11px] text-muted mt-2 opacity-60 tracking-tight">
+            SUUS kan fouten maken. Controleer altijd belangrijke informatie.
+          </p>
         </div>
-
-        {/* Hint */}
-        <p style={{ textAlign: 'center', fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', opacity: .7 }}>
-          SUUS kan fouten maken. Controleer altijd belangrijke informatie.
-        </p>
       </div>
     </div>
   )

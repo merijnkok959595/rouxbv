@@ -3,28 +3,7 @@
 import { Building2, MapPin, Phone, Plus, Pencil, Eye, User } from 'lucide-react'
 import type { ContactFormPrefilled } from './ContactForm'
 
-// ── Shared card base ─────────────────────────────────────────────────────────
-
-const card: React.CSSProperties = {
-  background: 'var(--surface)',
-  border:     '1px solid var(--border)',
-  borderRadius: '12px',
-  overflow:   'hidden',
-  fontSize:   '13px',
-}
-
-const iconBox: React.CSSProperties = {
-  width: '30px', height: '30px', borderRadius: '8px',
-  background: 'var(--bg)', border: '1px solid var(--border)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-}
-
-const chip: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: '3px',
-  fontSize: '11px', color: 'var(--muted)',
-}
-
-// ── ContactFormCard (trigger for create or update form) ──────────────────────
+// ── ContactFormCard ───────────────────────────────────────────────────────────
 
 interface ContactFormCardProps {
   prefilled: ContactFormPrefilled
@@ -40,8 +19,8 @@ export function ContactFormCard({ prefilled, done, onClick }: ContactFormCardPro
 
   if (done) {
     return (
-      <div style={{ ...card, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.55 }}>
-        <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
+      <div className="bg-surface border border-border rounded-xl px-3.5 py-2.5 flex items-center gap-2 opacity-55">
+        <span className="text-xs text-muted">
           ✓ {isEdit ? 'Contact bijgewerkt' : 'Contact aangemaakt'}
         </span>
       </div>
@@ -49,65 +28,47 @@ export function ContactFormCard({ prefilled, done, onClick }: ContactFormCardPro
   }
 
   return (
-    <div style={{ ...card, width: '100%', maxWidth: '340px' }}>
-
+    <div className="bg-surface border border-border rounded-xl overflow-hidden w-full max-w-[340px] text-[13px]">
       {/* Header */}
-      <div style={{ padding: '14px 16px 12px', background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-          <div style={iconBox}>
-            <Building2 size={14} style={{ color: 'var(--muted)' }} />
+      <div className="px-4 py-3.5 bg-bg border-b border-border">
+        <div className="flex items-start gap-2.5">
+          <div className="w-[30px] h-[30px] rounded-lg bg-bg border border-border flex items-center justify-center flex-shrink-0">
+            <Building2 size={14} className="text-muted" />
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em', lineHeight: 1.3 }}>
-              {company}
-            </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-primary tracking-tight leading-snug">{company}</div>
             {isEdit && personStr && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
+              <div className="flex items-center gap-1 text-xs text-muted mt-0.5">
                 <User size={11} /> {personStr}
               </div>
             )}
           </div>
         </div>
-
-        {/* Detail chips */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
+        <div className="flex flex-wrap gap-2 mt-2.5">
           {prefilled.city && (
-            <span style={chip}><MapPin size={10} /> {prefilled.city}</span>
+            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted"><MapPin size={10} /> {prefilled.city}</span>
           )}
           {!isEdit && addrStr && !prefilled.city && (
-            <span style={{ ...chip, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
+            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted overflow-hidden text-ellipsis whitespace-nowrap max-w-[200px]">
               <MapPin size={10} /> {addrStr}
             </span>
           )}
           {prefilled.phone && (
-            <span style={chip}><Phone size={10} /> {prefilled.phone}</span>
+            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted"><Phone size={10} /> {prefilled.phone}</span>
           )}
         </div>
       </div>
-
       {/* CTA */}
-      <div style={{ padding: '10px 16px' }}>
-        <button
-          onClick={onClick}
-          style={{
-            width: '100%', padding: '9px 12px', fontSize: '13px', fontWeight: 600,
-            background: 'var(--text)', color: 'var(--surface)',
-            border: 'none', borderRadius: '8px', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-            letterSpacing: '-0.01em',
-          }}
-        >
-          {isEdit
-            ? <><Pencil size={12} /> Bijwerken</>
-            : <><Plus   size={12} /> Aanmaken</>
-          }
+      <div className="px-4 py-2.5">
+        <button onClick={onClick} className="btn-primary w-full py-2.5">
+          {isEdit ? <><Pencil size={12} /> Bijwerken</> : <><Plus size={12} /> Aanmaken</>}
         </button>
       </div>
     </div>
   )
 }
 
-// ── ContactSelectorCards (multi-contact picker) ──────────────────────────────
+// ── ContactSelectorCards ──────────────────────────────────────────────────────
 
 export interface ContactCardData {
   contactId:   string
@@ -127,62 +88,37 @@ interface ContactSelectorCardsProps {
 
 export function ContactSelectorCards({ contacts, onSelect, onView }: ContactSelectorCardsProps) {
   return (
-    <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '4px', maxWidth: '100%' }}>
+    <div className="flex gap-2.5 overflow-x-auto pb-1 max-w-full">
       {contacts.map(c => {
         const title = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Contact'
         const sub   = c.companyName ? [c.firstName, c.lastName].filter(Boolean).join(' ') : null
 
         return (
-          <div key={c.contactId} style={{ ...card, minWidth: '155px', maxWidth: '175px', flexShrink: 0 }}>
-
-            {/* Body */}
-            <div style={{ padding: '12px 12px 10px' }}>
-              <div style={{ ...iconBox, width: '26px', height: '26px', borderRadius: '7px', marginBottom: '8px' }}>
-                <Building2 size={12} style={{ color: 'var(--muted)' }} />
+          <div key={c.contactId} className="bg-surface border border-border rounded-xl overflow-hidden min-w-[155px] max-w-[175px] flex-shrink-0 text-[13px]">
+            <div className="px-3 pt-3 pb-2.5">
+              <div className="w-[26px] h-[26px] rounded-[7px] bg-bg border border-border flex items-center justify-center mb-2">
+                <Building2 size={12} className="text-muted" />
               </div>
-              <div style={{
-                fontSize: '13px', fontWeight: 700, color: 'var(--text)', lineHeight: 1.3,
-                overflow: 'hidden', display: '-webkit-box',
-                WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-              }}>
-                {title}
-              </div>
-              {sub && (
-                <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {sub}
-                </div>
-              )}
+              <div className="text-[13px] font-bold text-primary leading-snug line-clamp-2">{title}</div>
+              {sub && <div className="text-[11px] text-muted mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap">{sub}</div>}
               {c.city && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '6px', fontSize: '11px', color: 'var(--muted)' }}>
+                <div className="flex items-center gap-0.5 mt-1.5 text-[11px] text-muted">
                   <MapPin size={9} /> {c.city}
                 </div>
               )}
             </div>
-
-            {/* Divider */}
-            <div style={{ height: '1px', background: 'var(--border)' }} />
-
-            {/* Actions */}
-            <div style={{ padding: '8px 10px', display: 'flex', gap: '6px' }}>
+            <div className="h-px bg-border" />
+            <div className="px-2.5 py-2 flex gap-1.5">
               <button
                 onClick={() => onSelect(c)}
-                style={{
-                  flex: 1, padding: '7px 6px', fontSize: '12px', fontWeight: 600,
-                  background: 'var(--text)', color: 'var(--surface)',
-                  border: 'none', borderRadius: '6px', cursor: 'pointer',
-                }}
+                className="flex-1 py-[7px] text-xs font-semibold bg-primary text-white border-none rounded-md cursor-pointer hover:opacity-90 transition-opacity"
               >
                 Selecteer
               </button>
               <button
                 onClick={() => onView(c)}
                 title="Bekijken"
-                style={{
-                  width: '30px', padding: '7px',
-                  background: 'var(--surface)', color: 'var(--muted)',
-                  border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
+                className="w-[30px] py-[7px] bg-surface text-muted border border-border rounded-md cursor-pointer flex items-center justify-center hover:bg-active transition-colors"
               >
                 <Eye size={13} />
               </button>

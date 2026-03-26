@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const MONO = "'SF Mono','Fira Code',ui-monospace,monospace"
 
@@ -37,27 +38,17 @@ type Stats      = { total: number; highPotential: number; today: number }
 type DateFilter = 'all' | 'today' | 'week' | 'month'
 
 const DATE_FILTERS: { key: DateFilter; label: string }[] = [
-  { key: 'all',   label: 'Alles'    },
-  { key: 'today', label: 'Vandaag'  },
-  { key: 'week',  label: 'Week'     },
-  { key: 'month', label: 'Maand'    },
+  { key: 'all',   label: 'Alles'   },
+  { key: 'today', label: 'Vandaag' },
+  { key: 'week',  label: 'Week'    },
+  { key: 'month', label: 'Maand'   },
 ]
-
-const TH: React.CSSProperties = {
-  padding: '10px 14px', fontWeight: 700, color: 'var(--text)',
-  fontSize: '12px', whiteSpace: 'nowrap', textAlign: 'left',
-  borderBottom: '1px solid var(--border)', textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-}
-const TD: React.CSSProperties = {
-  padding: '10px 14px', verticalAlign: 'middle',
-  borderBottom: '1px solid var(--border)', fontSize: '13px',
-}
 
 function Bool({ val }: { val: boolean | null }) {
   const on = val === true
   return (
-    <span style={{ fontFamily: MONO, fontSize: '11px', fontWeight: 600, color: on ? '#16a34a' : 'var(--muted)', letterSpacing: '0.01em' }}>
+    <span className={cn('text-[11px] font-semibold tracking-[0.01em]', on ? 'text-green-600' : 'text-muted')}
+      style={{ fontFamily: MONO }}>
       {on ? 'TRUE' : 'FALSE'}
     </span>
   )
@@ -111,22 +102,22 @@ export default function LeadsPage() {
   }, [leads, dateFilter])
 
   return (
-    <div style={{ backgroundColor: 'var(--bg)', minHeight: 'calc(100vh - 44px)', color: 'var(--text)' }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px 24px 48px' }}>
+    <div className="min-h-[calc(100vh-44px)] bg-bg text-primary">
+      <div className="max-w-[1200px] mx-auto px-6 pt-6 pb-12">
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-          <h1 style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', margin: 0, flex: 1 }}>Leads</h1>
+        <div className="flex items-center gap-3 mb-5">
+          <h1 className="text-xl font-extrabold tracking-tight flex-1">Leads</h1>
           <button onClick={() => void load()} disabled={loading}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '7px 13px', fontSize: '13px', fontWeight: 600, borderRadius: '7px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: loading ? 'wait' : 'pointer' }}>
-            <RefreshCw size={13} style={loading ? { animation: 'spin 1s linear infinite' } : undefined} />
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg border border-border bg-surface text-primary cursor-pointer disabled:cursor-wait hover:bg-active transition-colors">
+            <RefreshCw size={13} className={cn(loading && 'animate-spin')} />
             Vernieuwen
           </button>
         </div>
 
         {/* Stats */}
         {stats && (
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+          <div className="flex gap-2.5 mb-5">
             <StatTile icon="📋" label="Totaal leads"    value={stats.total}         />
             <StatTile icon="🔥" label="Hoog potentieel" value={stats.highPotential} />
             <StatTile icon="⚡" label="Vandaag"          value={stats.today}         />
@@ -134,102 +125,94 @@ export default function LeadsPage() {
         )}
 
         {/* Date filter */}
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
+        <div className="flex gap-1 mb-3">
           {DATE_FILTERS.map(f => (
             <button key={f.key} onClick={() => setDateFilter(f.key)}
-              style={{
-                padding: '5px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', border: 'none',
-                backgroundColor: dateFilter === f.key ? 'var(--text)' : 'var(--surface)',
-                color:           dateFilter === f.key ? 'var(--surface)' : 'var(--muted)',
-                outline:         dateFilter === f.key ? 'none' : '1px solid var(--border)',
-              }}>
+              className={cn(
+                'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors',
+                dateFilter === f.key
+                  ? 'bg-primary text-white'
+                  : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
+              )}>
               {f.label}
             </button>
           ))}
           {dateFilter !== 'all' && (
-            <span style={{ fontSize: '12px', color: 'var(--muted)', alignSelf: 'center', marginLeft: '6px' }}>
-              {filtered.length} resultaten
-            </span>
+            <span className="text-xs text-muted self-center ml-1.5">{filtered.length} resultaten</span>
           )}
         </div>
 
         {error && (
-          <p style={{ fontSize: '14px', color: '#B91C1C', marginBottom: '16px', padding: '12px', background: '#FEF2F2', borderRadius: '8px' }}>{error}</p>
+          <p className="text-sm text-red-700 mb-4 px-3 py-3 bg-red-50 rounded-lg">{error}</p>
         )}
 
         {loading && leads === null ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: 'var(--muted)' }}>
-            <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Laden…
+          <div className="flex items-center gap-2.5 text-sm text-muted">
+            <Loader2 size={16} className="animate-spin" /> Laden…
           </div>
         ) : (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+          <div className="bg-surface border border-border rounded-xl overflow-auto">
+            <table className="w-full border-collapse min-w-[800px]">
               <thead>
                 <tr>
-                  <th style={TH}>Bedrijf</th>
-                  <th style={TH}>Plaats</th>
-                  <th style={TH}>Type</th>
-                  <th style={TH}>Bron</th>
-                  <th style={TH}>Label</th>
-                  <th style={TH}>Volume</th>
-                  <th style={TH}>Toegewezen aan</th>
-                  <th style={TH}>WhatsApp</th>
-                  <th style={TH}>GHL</th>
-                  <th style={{ ...TH, fontFamily: MONO }}>Datum</th>
+                  {['Bedrijf','Plaats','Type','Bron','Label','Volume','Toegewezen aan','WhatsApp','GHL','Datum'].map(h => (
+                    <th key={h} className="px-3.5 py-2.5 text-left text-xs font-bold text-primary uppercase tracking-[0.05em] border-b border-border whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={10} style={{ ...TD, textAlign: 'center', color: 'var(--muted)', padding: '32px 14px' }}>
+                    <td colSpan={10} className="px-3.5 py-8 text-center text-sm text-muted border-b border-border">
                       Geen leads gevonden.
                     </td>
                   </tr>
                 ) : filtered.map(row => {
-                  const typeS   = TYPE_META[row.type?.toLowerCase() ?? '']
-                  const ls      = row.label?.toUpperCase() ?? ''
-                  const labelS  = LABEL_STYLE[ls]
-                  const member  = row.assigned_to ? memberMap[row.assigned_to] : null
-                  const mColor  = member?.color ?? '#64748b'
+                  const typeS  = TYPE_META[row.type?.toLowerCase() ?? '']
+                  const ls     = row.label?.toUpperCase() ?? ''
+                  const labelS = LABEL_STYLE[ls]
+                  const member = row.assigned_to ? memberMap[row.assigned_to] : null
+                  const mColor = member?.color ?? '#64748b'
                   return (
-                    <tr key={row.id}>
-                      <td style={{ ...TD, fontWeight: 600 }}>{row.company_name ?? '—'}</td>
-                      <td style={{ ...TD, color: 'var(--muted)' }}>{row.city ?? '—'}</td>
-                      <td style={TD}>
+                    <tr key={row.id} className="hover:bg-bg transition-colors">
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] font-semibold">{row.company_name ?? '—'}</td>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted">{row.city ?? '—'}</td>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {typeS
-                          ? <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, backgroundColor: typeS.bg, color: typeS.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{typeS.label}</span>
-                          : <span style={{ color: 'var(--muted)' }}>—</span>}
+                          ? <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-[0.05em]"
+                              style={{ backgroundColor: typeS.bg, color: typeS.color }}>{typeS.label}</span>
+                          : <span className="text-muted">—</span>}
                       </td>
-                      <td style={TD}>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {row.source
-                          ? <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: 'var(--active)', border: '1px solid var(--border)', color: 'var(--text)', whiteSpace: 'nowrap' }}>{row.source}</span>
-                          : <span style={{ color: 'var(--muted)' }}>—</span>}
+                          ? <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-active border border-border text-primary whitespace-nowrap">{row.source}</span>
+                          : <span className="text-muted">—</span>}
                       </td>
-                      <td style={TD}>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {labelS
-                          ? <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700, backgroundColor: labelS.bg, color: labelS.color, fontFamily: MONO }}>{ls}</span>
-                          : <span style={{ color: 'var(--muted)' }}>—</span>}
+                          ? <span className="px-2 py-0.5 rounded text-xs font-bold"
+                              style={{ backgroundColor: labelS.bg, color: labelS.color, fontFamily: MONO }}>{ls}</span>
+                          : <span className="text-muted">—</span>}
                       </td>
-                      <td style={{ ...TD, fontFamily: MONO, fontSize: '12px', color: 'var(--muted)' }}>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-xs text-muted"
+                        style={{ fontFamily: MONO }}>
                         {row.revenue != null ? row.revenue.toLocaleString('nl-NL') : '—'}
                       </td>
-                      <td style={TD}>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {row.assigned_to ? (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '5px',
-                            padding: '2px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: 700,
-                            backgroundColor: `${mColor}18`, color: mColor,
-                            border: `1px solid ${mColor}30`,
-                            textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
-                          }}>
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: mColor, flexShrink: 0 }} />
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-[0.05em] whitespace-nowrap"
+                            style={{ backgroundColor: `${mColor}18`, color: mColor, border: `1px solid ${mColor}30` }}>
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: mColor }} />
                             {row.assigned_to}
                           </span>
-                        ) : <span style={{ color: 'var(--muted)', fontSize: '12px' }}>—</span>}
+                        ) : <span className="text-muted text-xs">—</span>}
                       </td>
-                      <td style={TD}><Bool val={row.whatsapp} /></td>
-                      <td style={TD}><Bool val={row.ghl_synced} /></td>
-                      <td style={{ ...TD, fontFamily: MONO, fontSize: '11px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]"><Bool val={row.whatsapp} /></td>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]"><Bool val={row.ghl_synced} /></td>
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[11px] text-muted whitespace-nowrap"
+                        style={{ fontFamily: MONO }}>
                         {row.created_at
                           ? new Date(row.created_at).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
                           : '—'}
@@ -246,14 +229,14 @@ export default function LeadsPage() {
   )
 }
 
-function StatTile({ icon, label, value }: { icon: string; label: string; value: number; accent?: string }) {
+function StatTile({ icon, label, value }: { icon: string; label: string; value: number }) {
   return (
-    <div style={{ width: '148px', flexShrink: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-        <span style={{ fontSize: '13px', lineHeight: 1 }}>{icon}</span>
-        <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
+    <div className="w-[148px] flex-shrink-0 bg-surface border border-border rounded-[10px] px-3.5 py-3 flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[13px] leading-none">{icon}</span>
+        <span className="text-[11px] font-semibold text-muted uppercase tracking-[0.05em]">{label}</span>
       </div>
-      <span style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.1, fontFamily: MONO, letterSpacing: '-0.02em' }}>
+      <span className="text-[26px] font-extrabold text-primary leading-[1.1] tracking-tight" style={{ fontFamily: MONO }}>
         {value}
       </span>
     </div>
