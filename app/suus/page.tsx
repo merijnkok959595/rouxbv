@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { ArrowUp, PhoneOff, Mic, MicOff, X, ImageIcon, Plus, AudioLines, Check, Phone } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { cn }              from '@/lib/utils'
 import { useEmployee }     from '@/lib/employee-context'
 import ContactForm,  { ContactFormPrefilled } from '@/components/ContactForm'
@@ -61,6 +63,7 @@ export default function SuusPage() {
   const [input,        setInput]        = useState('')
   const [sessionId]                     = useState(() => crypto.randomUUID())
   const [calling,      setCalling]      = useState(false)
+  const callingRef     = useRef(false)
   const [callStatus,   setCallStatus]   = useState<'idle' | 'connecting' | 'active'>('idle')
   const [agentTalking, setAgentTalking] = useState(false)
   const [userTalking,  setUserTalking]  = useState(false)
@@ -76,6 +79,11 @@ export default function SuusPage() {
   const dictAudioCtxRef  = useRef<AudioContext | null>(null)
   const dictAnimFrameRef = useRef<number>(0)
   const dictBarsRef      = useRef<(HTMLDivElement | null)[]>([])
+  const callBarsRef      = useRef<(HTMLDivElement | null)[]>([])
+  const callAnalyserRef  = useRef<AnalyserNode | null>(null)
+  const callAudioCtxRef  = useRef<AudioContext | null>(null)
+  const callAnimFrameRef = useRef<number>(0)
+  const realtimeStreamingRef = useRef(false)
 
   const { activeEmployee } = useEmployee()
   const imageInputRef    = useRef<HTMLInputElement>(null)
@@ -296,12 +304,50 @@ export default function SuusPage() {
 
   function handleRealtimeEvent(e: MessageEvent) {
     try {
-      const ev = JSON.parse(e.data as string) as { type: string; item?: { type: string; call_id: string; name: string; arguments: string } }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ev = JSON.parse(e.data as string) as any
       switch (ev.type) {
         case 'input_audio_buffer.speech_started': setUserTalking(true);  break
         case 'input_audio_buffer.speech_stopped': setUserTalking(false); break
         case 'response.audio.delta':              setAgentTalking(true);  break
         case 'response.audio.done':               setAgentTalking(false); break
+
+        case 'response.audio_transcript.delta': {
+          const delta = (ev.delta as string) ?? ''
+          if (!realtimeStreamingRef.current) {
+            realtimeStreamingRef.current = true
+            setMsgs(p => [...p, { role: 'ai', text: delta, streaming: true }])
+          } else {
+            setMsgs(p => {
+              const next = [...p]
+              const idx = next.findLastIndex(m => m.role === 'ai')
+              if (idx >= 0) next[idx] = { ...next[idx], text: next[idx].text + delta }
+              return next
+            })
+          }
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+          break
+        }
+
+        case 'response.audio_transcript.done':
+          realtimeStreamingRef.current = false
+          setMsgs(p => {
+            const next = [...p]
+            const idx = next.findLastIndex(m => m.role === 'ai')
+            if (idx >= 0) next[idx] = { ...next[idx], streaming: false }
+            return next
+          })
+          break
+
+        case 'conversation.item.input_audio_transcription.completed': {
+          const transcript = (ev.transcript as string)?.trim()
+          if (transcript) {
+            setMsgs(p => [...p, { role: 'user', text: transcript }])
+            bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+          }
+          break
+        }
+
         case 'response.output_item.done':
           if (ev.item?.type === 'function_call') executeTool(ev.item as { call_id: string; name: string; arguments: string })
           break
@@ -310,34 +356,84 @@ export default function SuusPage() {
     } catch { /* ignore */ }
   }
 
+  function startCallVisualizer(stream: MediaStream) {
+    const audioCtx = new AudioContext()
+    callAudioCtxRef.current = audioCtx
+    const source = audioCtx.createMediaStreamSource(stream)
+    const analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 32
+    analyser.smoothingTimeConstant = 0.8
+    source.connect(analyser)
+    callAnalyserRef.current = analyser
+    const dataArray = new Uint8Array(analyser.frequencyBinCount)
+    function draw() {
+      if (!callAnalyserRef.current) return
+      callAnalyserRef.current.getByteFrequencyData(dataArray)
+      const bars = callBarsRef.current
+      for (let i = 0; i < bars.length; i++) {
+        const bar = bars[i]; if (!bar) continue
+        const binIndex = Math.min(Math.floor((i / bars.length) * (dataArray.length / 2)), dataArray.length - 1)
+        const value = dataArray[binIndex] / 255
+        bar.style.height = `${3 + value * 13}px`
+      }
+      callAnimFrameRef.current = requestAnimationFrame(draw)
+    }
+    draw()
+  }
+
+  function stopCallVisualizer() {
+    cancelAnimationFrame(callAnimFrameRef.current)
+    callAnalyserRef.current = null
+    callAudioCtxRef.current?.close()
+    callAudioCtxRef.current = null
+  }
+
   function stopCall() {
+    callingRef.current = false
     dcRef.current?.close(); dcRef.current = null
     pcRef.current?.close(); pcRef.current = null
     localStreamRef.current?.getTracks().forEach(t => t.stop()); localStreamRef.current = null
-    if (audioElRef.current) { audioElRef.current.srcObject = null; audioElRef.current = null }
+    if (audioElRef.current) {
+      audioElRef.current.pause()
+      audioElRef.current.srcObject = null
+      audioElRef.current = null
+    }
+    stopCallVisualizer()
+    realtimeStreamingRef.current = false
     setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false); setMuted(false)
   }
 
   async function toggleCall() {
-    if (calling) { stopCall(); return }
+    if (callingRef.current) { stopCall(); return }
+    callingRef.current = true
     setCalling(true); setCallStatus('connecting')
     try {
       const res  = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, employee_id: activeEmployee?.id }) })
+      if (!callingRef.current) return
       const data = await res.json() as { client_secret?: { value: string }; error?: string }
       if (!data.client_secret?.value) throw new Error(data.error ?? 'No client secret')
+      if (!callingRef.current) return
       const pc = new RTCPeerConnection(); pcRef.current = pc
-      pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') stopCall() }
+      pc.oniceconnectionstatechange = () => { if (callingRef.current && (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected')) stopCall() }
       const audioEl = new Audio(); audioEl.autoplay = true; audioElRef.current = audioEl
       pc.ontrack = e => { audioEl.srcObject = e.streams[0] }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (!callingRef.current) { stream.getTracks().forEach(t => t.stop()); pc.close(); return }
       localStreamRef.current = stream; stream.getTracks().forEach(t => pc.addTrack(t, stream))
+      startCallVisualizer(stream)
       const dc = pc.createDataChannel('oai-events'); dcRef.current = dc
-      dc.onopen = () => setCallStatus('active'); dc.onclose = () => { if (calling) stopCall() }; dc.onmessage = handleRealtimeEvent
+      dc.onopen = () => {
+        setCallStatus('active')
+        dc.send(JSON.stringify({ type: 'session.update', session: { input_audio_transcription: { model: 'whisper-1' } } }))
+      }
+      dc.onclose = () => { if (callingRef.current) stopCall() }; dc.onmessage = handleRealtimeEvent
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
+      if (!callingRef.current) { pc.close(); return }
       const sdpRes = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview', { method: 'POST', headers: { Authorization: `Bearer ${data.client_secret.value}`, 'Content-Type': 'application/sdp' }, body: offer.sdp })
+      if (!callingRef.current) { pc.close(); return }
       if (!sdpRes.ok) throw new Error(`SDP exchange failed: ${sdpRes.status}`)
       await pc.setRemoteDescription({ type: 'answer', sdp: await sdpRes.text() })
-    } catch (err) { console.error('[voice]', err); stopCall() }
+    } catch (err) { console.error('[voice]', err); if (callingRef.current) stopCall() }
   }
 
   function toggleMute() {
@@ -351,89 +447,6 @@ export default function SuusPage() {
   return (
     <div className="flex flex-col bg-bg" style={{ height: 'calc(100vh - 80px)' }}>
 
-      {/* ── Call overlay ─────────────────────────────────────────── */}
-      {calling && (
-        <>
-          {/* ── Desktop overlay (md+) ──────────────────────────────── */}
-          <div className="fixed inset-0 z-[200] hidden md:flex flex-col bg-black/45 backdrop-blur-md animate-fade-up">
-            <div className="flex-1 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <VoiceOrb
-                  state={toOrbState(agentTalking ? 'talking' : userTalking ? 'listening' : null, callStatus)}
-                  size={150}
-                />
-                <p className="text-base font-bold tracking-tight text-white">SUUS</p>
-                <p className="text-xs text-white/60 min-h-[18px]">
-                  {callStatus === 'connecting'
-                    ? 'Verbinden…'
-                    : agentTalking ? <span className="text-blue-300 font-medium">Spreekt…</span>
-                    : userTalking  ? <span className="text-green-400 font-medium">Luistert…</span>
-                    : timer}
-                </p>
-              </div>
-            </div>
-            {/* Desktop call input bar */}
-            <div className="px-4 pb-[max(24px,env(safe-area-inset-bottom))] flex-shrink-0">
-              <div className="max-w-[760px] mx-auto">
-                <div className="flex items-center gap-2 px-3 py-3 border border-white/20 rounded-[28px] bg-white/10 backdrop-blur-sm">
-                  <textarea
-                    value={input}
-                    onChange={e => { setInput(e.target.value); resizeTextarea() }}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input, pendingImage?.base64) } }}
-                    placeholder="Typ een bericht…"
-                    rows={1}
-                    className="flex-1 resize-none border-none bg-transparent text-[16px] text-white outline-none leading-[1.4] max-h-32 overflow-y-auto p-0 font-[inherit] placeholder:text-white/40"
-                  />
-                  <button
-                    onClick={toggleMute}
-                    className={cn(
-                      'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors',
-                      muted ? 'bg-red-500/30 text-red-300' : 'bg-white/10 text-white/70 hover:bg-white/20',
-                    )}
-                  >
-                    {muted ? <MicOff size={18} strokeWidth={1.75} /> : <Mic size={18} strokeWidth={1.75} />}
-                  </button>
-                  {input.trim() ? (
-                    <button onClick={() => sendMessage(input, pendingImage?.base64)} className="w-10 h-10 rounded-full bg-white text-primary flex items-center justify-center flex-shrink-0 hover:opacity-85">
-                      <ArrowUp size={16} strokeWidth={2.5} />
-                    </button>
-                  ) : (
-                    <button onClick={toggleCall} className="flex items-center gap-2 pl-3 pr-4 h-10 bg-red-600 text-white rounded-full flex-shrink-0 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,.4)]">
-                      <div className="flex items-center gap-[2px]">
-                        {[8,13,10,16,9,13,8].map((h, i) => (
-                          <div key={i} className="w-[2.5px] rounded-full bg-white animate-dict-wave" style={{ height: `${h}px`, animationDelay: `${i * 0.08}s` }} />
-                        ))}
-                      </div>
-                      <span className="text-[13px] font-semibold">Ophangen</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Mobile: status banner at top ───────────────────────── */}
-          <div className="md:hidden flex items-center gap-2.5 px-4 py-2.5 bg-black/80 backdrop-blur-sm animate-fade-up flex-shrink-0 z-10">
-            <VoiceOrb
-              state={toOrbState(agentTalking ? 'talking' : userTalking ? 'listening' : null, callStatus)}
-              size={32}
-            />
-            <span className="text-[13px] font-medium text-white flex-1 truncate">
-              {callStatus === 'connecting'
-                ? 'Verbinden met SUUS…'
-                : agentTalking ? 'SUUS spreekt…'
-                : userTalking  ? 'SUUS luistert…'
-                : `SUUS · ${timer}`}
-            </span>
-            <button onClick={toggleMute} className={cn('w-7 h-7 rounded-full flex items-center justify-center', muted ? 'bg-red-500/40 text-red-300' : 'text-white/60')}>
-              {muted ? <MicOff size={14} /> : <Mic size={14} />}
-            </button>
-            <button onClick={toggleCall} className="flex items-center gap-1.5 px-3 h-7 bg-red-600 text-white text-[12px] font-semibold rounded-full">
-              Ophangen
-            </button>
-          </div>
-        </>
-      )}
 
       {/* ── Contact form modal ───────────────────────────────────── */}
       {modalForm && (
@@ -467,18 +480,16 @@ export default function SuusPage() {
       <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
         <div className="max-w-[720px] mx-auto px-4 pt-14 pb-4 flex flex-col max-sm:px-3 relative">
 
-          {/* Handsfree button — top-right inside chat width, always visible */}
-          {!calling && (
-            <div className="absolute top-4 right-4 max-sm:right-3 z-10 mb-4">
-              <button
-                onClick={toggleCall}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-[12px] font-medium rounded-full hover:opacity-85 transition-opacity"
-              >
-                <Phone size={13} strokeWidth={2} />
-                Bellen
-              </button>
-            </div>
-          )}
+          {/* Bellen button — top-right, always visible */}
+          <div className="absolute top-4 right-4 max-sm:right-3 z-10">
+            <button
+              onClick={toggleCall}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-[12px] font-medium rounded-full hover:opacity-85 transition-opacity"
+            >
+              <Phone size={13} strokeWidth={2} />
+              Bellen
+            </button>
+          </div>
 
           {/* Empty state */}
           {msgs.length === 0 && (
@@ -519,12 +530,35 @@ export default function SuusPage() {
               ) : (
                 /* AI row */
                 <div className="flex gap-3 items-start">
-                  <div className="flex-1 min-w-0 pt-0.5">
+                  <div className="min-w-0 pt-0.5 max-w-[480px]">
                     {m.text ? (
-                      <p className="text-[14.5px] leading-[1.7] text-[#0d0d0d] whitespace-pre-wrap break-words">
-                        {m.text}
-                        {m.streaming && <TypingDots />}
-                      </p>
+                      <div className="text-[14.5px] leading-[1.7] text-[#0d0d0d]">
+                        {m.streaming ? (
+                          <p className="whitespace-pre-wrap break-words">
+                            {m.text}
+                            <TypingDots />
+                          </p>
+                        ) : (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p:      ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
+                              strong: ({children}) => <strong className="font-semibold text-[#0d0d0d]">{children}</strong>,
+                              em:     ({children}) => <em className="italic">{children}</em>,
+                              ul:     ({children}) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+                              ol:     ({children}) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                              li:     ({children}) => <li className="leading-[1.6]">{children}</li>,
+                              h1:     ({children}) => <h1 className="text-[15px] font-bold mb-1.5 mt-2">{children}</h1>,
+                              h2:     ({children}) => <h2 className="text-[14.5px] font-semibold mb-1 mt-2">{children}</h2>,
+                              h3:     ({children}) => <h3 className="text-[14px] font-semibold mb-1 mt-1.5">{children}</h3>,
+                              code:   ({children}) => <code className="bg-black/6 rounded px-1 py-0.5 text-[13px] font-mono">{children}</code>,
+                              a:      ({href, children}) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline underline-offset-2">{children}</a>,
+                            }}
+                          >
+                            {m.text}
+                          </ReactMarkdown>
+                        )}
+                      </div>
                     ) : m.streaming ? (
                       <TypingDots />
                     ) : null}
@@ -579,15 +613,6 @@ export default function SuusPage() {
         </div>
       )}
 
-      {/* ── Mobile: orb above input bar during call ─────────────── */}
-      {calling && (
-        <div className="md:hidden flex justify-center pb-2 flex-shrink-0">
-          <VoiceOrb
-            state={toOrbState(agentTalking ? 'talking' : userTalking ? 'listening' : null, callStatus)}
-            size={72}
-          />
-        </div>
-      )}
 
       {/* ── Input bar ────────────────────────────────────────────── */}
       <div className="px-4 pb-[max(16px,env(safe-area-inset-bottom))] flex-shrink-0 max-sm:px-3">
@@ -672,26 +697,65 @@ export default function SuusPage() {
 
               {/* Right icons */}
               <div className="flex items-center gap-2 flex-shrink-0">
-                {/* Dictate button */}
-                <button
-                  onClick={startDictate}
-                  title="Dicteer bericht"
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-muted hover:text-primary transition-colors"
-                >
-                  <Mic size={20} strokeWidth={1.5} />
-                </button>
+                {/* Dictate button — hidden during call (mute btn takes over) */}
+                {!calling && (
+                  <button
+                    onClick={startDictate}
+                    title="Dicteer bericht"
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-muted hover:text-primary transition-colors"
+                  >
+                    <Mic size={20} strokeWidth={1.5} />
+                  </button>
+                )}
 
                 {/* Send / call button */}
-                <button
-                  onClick={() => { if (hasContent) sendMessage(input, pendingImage?.base64); else toggleCall() }}
-                  title={hasContent ? 'Versturen (Enter)' : 'Bellen met SUUS'}
-                  className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:opacity-85 transition-opacity"
-                >
-                  {hasContent
-                    ? <ArrowUp size={17} strokeWidth={2.5} />
-                    : <AudioLines size={17} strokeWidth={2} />
-                  }
-                </button>
+                {calling ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <VoiceOrb
+                      state={toOrbState(agentTalking ? 'talking' : userTalking ? 'listening' : null, callStatus)}
+                      size={28}
+                    />
+                    <button
+                      onClick={toggleMute}
+                      title={muted ? 'Unmute' : 'Mute'}
+                      className={cn(
+                        'w-8 h-8 rounded-full flex items-center justify-center transition-colors flex-shrink-0',
+                        muted ? 'bg-red-100 text-red-500' : 'bg-black/6 text-secondary hover:text-primary',
+                      )}
+                    >
+                      {muted ? <MicOff size={14} strokeWidth={2} /> : <Mic size={14} strokeWidth={2} />}
+                    </button>
+                    <button
+                      onClick={toggleCall}
+                      className="inline-flex items-center gap-2 pl-3 pr-4 h-9 bg-[#007AFF] text-white rounded-full hover:opacity-90 transition-opacity flex-shrink-0"
+                    >
+                      <div className="flex items-center gap-[2.5px]">
+                        {[0, 1, 2].map(i => (
+                          <div
+                            key={i}
+                            ref={el => { callBarsRef.current[i] = el }}
+                            className="w-[3px] rounded-full bg-white transition-[height] duration-75"
+                            style={{ height: '3px' }}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-[13px] font-semibold">
+                        {callStatus === 'connecting' ? 'Verbinden…' : 'Ophangen'}
+                      </span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { if (hasContent) sendMessage(input, pendingImage?.base64); else toggleCall() }}
+                    title={hasContent ? 'Versturen (Enter)' : 'Bellen met SUUS'}
+                    className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:opacity-85 transition-opacity"
+                  >
+                    {hasContent
+                      ? <ArrowUp size={17} strokeWidth={2.5} />
+                      : <AudioLines size={17} strokeWidth={2} />
+                    }
+                  </button>
+                )}
               </div>
             </div>
           )}
