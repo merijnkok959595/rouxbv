@@ -1,13 +1,27 @@
 import { NextResponse } from 'next/server'
 import { adminSupabase } from '@/lib/supabase'
+import { appBaseUrl } from '@/lib/app-base-url'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function POST(req: Request) {
   try {
     const body = await req.json()
     const sb = adminSupabase()
 
-    const orgId = process.env.ORGANIZATION_ID
-    if (!orgId) return NextResponse.json({ error: 'ORGANIZATION_ID not set' }, { status: 500 })
+    const orgId = process.env.ORGANIZATION_ID?.trim()
+    if (!orgId) {
+      return NextResponse.json({ error: 'ORGANIZATION_ID ontbreekt in .env.local' }, { status: 500 })
+    }
+    if (orgId === 'your-org-uuid-here' || !UUID_RE.test(orgId)) {
+      return NextResponse.json(
+        {
+          error:
+            'ORGANIZATION_ID moet een echte UUID zijn (geen placeholder). In Supabase: SQL Editor → `select id from organizations limit 1;` of Table Editor → organizations → kolom id. Zet die waarde in .env.local en herstart npm run dev.',
+        },
+        { status: 400 },
+      )
+    }
 
     const {
       company, first_name, last_name, email, phone,
@@ -30,7 +44,7 @@ export async function POST(req: Request) {
         address1:        address     || null,
         city:            city        || null,
         postcode:        postcode    || null,
-        country:         country     || 'NL',
+        country:         country?.trim() || 'Nederland',
         assigned_to:     assigned_to || null,
         type:            status      || 'lead',
         source:          source      || null,
@@ -43,25 +57,28 @@ export async function POST(req: Request) {
 
     if (error) throw new Error(error.message)
 
-    // Fire intelligence + routing in parallel (non-blocking)
-    const base = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000'
-
-    const fire = (path: string, b: object) =>
-      fetch(`${base}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(b),
-      }).catch(() => {})
-
-    fire('/api/intelligence/enrich', { contact_id: contact.id, organization_id: orgId })
-    fire('/api/routing/apply',       { contact_id: contact.id, organization_id: orgId })
+    // Fire-and-forget: route + enrich every new contact automatically
+    const base    = appBaseUrl()
+    const payload = { contact_id: contact.id, organization_id: orgId }
+    void fetch(`${base}/api/routing/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {})
+    void fetch(`${base}/api/intelligence/enrich`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {})
 
     return NextResponse.json({ id: contact.id, assigned_to: contact.assigned_to })
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error('[formulier]', msg)
+    let msg = err instanceof Error ? err.message : String(err)
+    if (msg === 'fetch failed' || msg.includes('fetch failed')) {
+      msg =
+        'Geen verbinding met Supabase (fetch failed). Controleer NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY en internet; geen placeholder-URL (xxxx) gebruiken.'
+    }
+    console.error('[formulier]', err)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
