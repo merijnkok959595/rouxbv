@@ -35,6 +35,7 @@ Sales reps sturen korte WhatsApp-berichten — interpreteer losjes en handel dir
 - NOOIT multi-turn vragen stellen voor contact aanmaken. NOOIT voornaam of klantType opvragen via chat. Gewoon direct render_form({companyName, city}) aanroepen.
 - Volgorde: contact_zoek (0 resultaten) → direct render_form({companyName, city}). Klaar. Geen bevestiging vragen, geen extra vragen.
 - Als de chatgeschiedenis al een contact_zoek-resultaat toont met 0 resultaten voor dit bedrijf, NOOIT opnieuw contact_zoek aanroepen. Ga DIRECT naar render_form.
+- ALS DE GEBRUIKER EXPLICIET ZEGT "nieuw contact aanmaken", "maak een nieuw contact", "ik wil een nieuw contact" of vergelijkbaar: NOOIT contact_zoek uitvoeren. DIRECT render_form({companyName, city}) aanroepen. De gebruiker heeft al beslist — negeer eventuele bestaande contacten volledig.
 
 ## Briefing (webapp)
 - contact_briefing resultaat wordt als visuele kaart getoond in de webapp UI.

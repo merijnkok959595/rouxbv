@@ -1,6 +1,6 @@
 'use client'
 
-import { Building2, MapPin, Phone, Plus, Pencil, Eye, User } from 'lucide-react'
+import { MapPin, Phone, Plus, Pencil, Eye, User } from 'lucide-react'
 import type { ContactFormPrefilled } from './ContactForm'
 
 // ── ContactFormCard ───────────────────────────────────────────────────────────
@@ -95,32 +95,31 @@ export function ContactSelectorCards({ contacts, onSelect, onView }: ContactSele
 
         return (
           <div key={c.contactId} className="bg-surface border border-border rounded-xl overflow-hidden min-w-[155px] max-w-[175px] flex-shrink-0 text-[13px]">
-            <div className="px-3 pt-3 pb-2.5">
-              <div className="w-[26px] h-[26px] rounded-[7px] bg-bg border border-border flex items-center justify-center mb-2">
-                <Building2 size={12} className="text-muted" />
-              </div>
-              <div className="text-[13px] font-bold text-primary leading-snug line-clamp-2">{title}</div>
-              {sub && <div className="text-[11px] text-muted mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap">{sub}</div>}
-              {c.city && (
-                <div className="flex items-center gap-0.5 mt-1.5 text-[11px] text-muted">
-                  <MapPin size={9} /> {c.city}
-                </div>
-              )}
-            </div>
-            <div className="h-px bg-border" />
-            <div className="px-2.5 py-2 flex gap-1.5">
-              <button
-                onClick={() => onSelect(c)}
-                className="flex-1 py-[7px] text-xs font-semibold bg-primary text-white border-none rounded-md cursor-pointer hover:opacity-90 transition-opacity"
-              >
-                Selecteer
-              </button>
+            <div className="px-3 pt-3 pb-2.5 relative">
               <button
                 onClick={() => onView(c)}
                 title="Bekijken"
-                className="w-[30px] py-[7px] bg-surface text-muted border border-border rounded-md cursor-pointer flex items-center justify-center hover:bg-active transition-colors"
+                className="absolute top-2.5 right-2.5 w-[26px] h-[26px] bg-bg border border-border rounded-md cursor-pointer flex items-center justify-center hover:bg-active transition-colors text-muted"
               >
-                <Eye size={13} />
+                <Eye size={12} />
+              </button>
+              <div className="pr-8">
+                <div className="text-[13px] font-bold text-primary leading-snug line-clamp-2">{title}</div>
+                {sub && <div className="text-[11px] text-muted mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap">{sub}</div>}
+                {c.city && (
+                  <div className="flex items-center gap-0.5 mt-1.5 text-[11px] text-muted">
+                    <MapPin size={9} /> {c.city}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="px-2.5 py-2">
+              <button
+                onClick={() => onSelect(c)}
+                className="w-full py-[7px] text-xs font-semibold bg-primary text-white border-none rounded-md cursor-pointer hover:opacity-90 transition-opacity"
+              >
+                Selecteer
               </button>
             </div>
           </div>

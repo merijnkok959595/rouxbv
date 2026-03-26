@@ -516,23 +516,29 @@ export default function SuusPage() {
 
           {/* Messages */}
           {msgs.map((m, i) => (
-            <div key={i} className="py-1.5 animate-msg-in">
+            <div key={i} className="py-2 animate-msg-in">
               {m.role === 'user' ? (
                 /* User message */
                 <div className="flex justify-end">
-                  <div className="text-[14.5px] leading-[1.7] text-[#0d0d0d] max-w-[75%] whitespace-pre-wrap break-words max-sm:max-w-[85%] bg-white px-4 py-2.5 rounded-2xl">
-                    {m.image_url && (
-                      <img src={m.image_url} alt="bijlage" className="max-w-[200px] max-h-[150px] rounded-lg object-cover block mb-1.5" />
-                    )}
-                    {m.text}
+                  <div className="max-w-[75%] max-sm:max-w-[85%]">
+                    <p className="text-[11px] font-bold text-[#0d0d0d] mb-1 text-right">
+                      {activeEmployee?.naam.split(' ')[0] ?? 'Jij'}
+                    </p>
+                    <div className="text-[14.5px] leading-[1.6] text-[#374151] whitespace-pre-wrap break-words bg-white px-5 py-3 rounded-[22px]">
+                      {m.image_url && (
+                        <img src={m.image_url} alt="bijlage" className="max-w-[200px] max-h-[150px] rounded-lg object-cover block mb-1.5" />
+                      )}
+                      {m.text}
+                    </div>
                   </div>
                 </div>
               ) : (
                 /* AI row */
                 <div className="flex gap-3 items-start">
-                  <div className="min-w-0 pt-0.5 max-w-[480px]">
+                  <div className="min-w-0 max-w-[480px]">
+                    <p className="text-[11px] font-bold text-[#0d0d0d] mb-1">Suus</p>
                     {m.text ? (
-                      <div className="text-[14.5px] leading-[1.7] text-[#0d0d0d]">
+                      <div className="text-[14.5px] leading-[1.6] text-[#374151]">
                         {m.streaming ? (
                           <p className="whitespace-pre-wrap break-words">
                             {m.text}
@@ -543,7 +549,7 @@ export default function SuusPage() {
                             remarkPlugins={[remarkGfm]}
                             components={{
                               p:      ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
-                              strong: ({children}) => <strong className="font-semibold text-[#0d0d0d]">{children}</strong>,
+                              strong: ({children}) => <strong className="font-semibold text-[#374151]">{children}</strong>,
                               em:     ({children}) => <em className="italic">{children}</em>,
                               ul:     ({children}) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
                               ol:     ({children}) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,

@@ -239,13 +239,34 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
         </Field>
 
         <Field label="Producten">
-          <div className="flex flex-wrap gap-1.5">
-            {PRODUCTEN_OPTIONS.map(p => (
-              <ToggleBtn key={p} active={producten.includes(p)}
-                onClick={() => setProducten(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])}>
-                {p}
-              </ToggleBtn>
-            ))}
+          <div className="flex flex-col divide-y divide-border rounded-lg border border-border overflow-hidden">
+            {PRODUCTEN_OPTIONS.map(p => {
+              const checked = producten.includes(p)
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setProducten(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])}
+                  className={cn(
+                    'flex items-center gap-2.5 px-3 py-2 text-left transition-colors border-none cursor-pointer',
+                    checked ? 'bg-active' : 'bg-surface hover:bg-active/60',
+                  )}
+                >
+                  <span className={cn(
+                    'w-[15px] h-[15px] rounded-[4px] border flex items-center justify-center flex-shrink-0 transition-colors',
+                    checked ? 'bg-brand border-brand' : 'bg-surface border-border',
+                  )}>
+                    {checked && <Check size={9} strokeWidth={3} className="text-white" />}
+                  </span>
+                  <span className={cn(
+                    'text-[12.5px] leading-none',
+                    checked ? 'text-primary font-medium' : 'text-muted',
+                  )}>
+                    {p}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </Field>
       </FieldSection>
