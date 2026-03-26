@@ -12,15 +12,16 @@ export async function GET() {
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)
 
-    const [{ count: total }, { count: highPotential }, { count: today }] = await Promise.all([
+    const [{ count: total }, pipelineRes, { count: today }] = await Promise.all([
       sb.from('contacts').select('*', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .neq('type', 'employee'),
 
-      sb.from('contacts').select('*', { count: 'exact', head: true })
+      sb.from('contacts').select('revenue')
         .eq('organization_id', orgId)
         .in('label', ['A', 'B'])
-        .neq('type', 'employee'),
+        .neq('type', 'employee')
+        .not('revenue', 'is', null),
 
       sb.from('contacts').select('*', { count: 'exact', head: true })
         .eq('organization_id', orgId)
@@ -28,7 +29,9 @@ export async function GET() {
         .neq('type', 'employee'),
     ])
 
-    return NextResponse.json({ total: total ?? 0, highPotential: highPotential ?? 0, today: today ?? 0 })
+    const pipeline = (pipelineRes.data ?? []).reduce((sum, r) => sum + (r.revenue ?? 0), 0)
+
+    return NextResponse.json({ total: total ?? 0, pipeline, today: today ?? 0 })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { Loader2, RefreshCw, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const MONO = "'SF Mono','Fira Code',ui-monospace,monospace"
@@ -34,7 +34,7 @@ type Lead = {
 }
 
 type TeamMember = { id: string; naam: string; color: string | null }
-type Stats      = { total: number; highPotential: number; today: number }
+type Stats      = { total: number; pipeline: number; today: number }
 type DateFilter = 'all' | 'today' | 'week' | 'month'
 
 const DATE_FILTERS: { key: DateFilter; label: string }[] = [
@@ -61,13 +61,22 @@ function startOf(unit: 'today' | 'week' | 'month'): Date {
   d.setHours(0,0,0,0); d.setDate(1); return d
 }
 
+function fmtRevenue(v: number): string {
+  if (v >= 1_000_000) return `€ ${(v / 1_000_000).toFixed(1).replace('.', ',')}M`
+  if (v >= 1_000)     return `€ ${Math.round(v / 1_000)}K`
+  return `€ ${v.toLocaleString('nl-NL')}`
+}
+
 export default function LeadsPage() {
-  const [leads,      setLeads]      = useState<Lead[] | null>(null)
-  const [error,      setError]      = useState<string | null>(null)
-  const [loading,    setLoading]    = useState(true)
-  const [stats,      setStats]      = useState<Stats | null>(null)
-  const [members,    setMembers]    = useState<TeamMember[]>([])
-  const [dateFilter, setDateFilter] = useState<DateFilter>('all')
+  const [leads,          setLeads]          = useState<Lead[] | null>(null)
+  const [error,          setError]          = useState<string | null>(null)
+  const [loading,        setLoading]        = useState(true)
+  const [stats,          setStats]          = useState<Stats | null>(null)
+  const [members,        setMembers]        = useState<TeamMember[]>([])
+  const [dateFilter,     setDateFilter]     = useState<DateFilter>('all')
+  const [sourceFilter,   setSourceFilter]   = useState<string[] | null>(null)
+  const [enriching,      setEnriching]      = useState(false)
+  const [enrichMsg,      setEnrichMsg]      = useState<string | null>(null)
 
   async function load() {
     setLoading(true); setError(null)
@@ -77,12 +86,30 @@ export default function LeadsPage() {
       const res  = await fetch('/api/leads')
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Laden mislukt')
-      setLeads(data.leads ?? [])
+      const list: Lead[] = data.leads ?? []
+      setLeads(list)
+      // default: filter op meest recente bron
+      const recentSource = list.find(l => l.source)?.source ?? null
+      setSourceFilter(recentSource ? [recentSource] : null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Laden mislukt')
       setLeads([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function enrichAll() {
+    setEnriching(true); setEnrichMsg(null)
+    try {
+      const res  = await fetch('/api/intelligence/enrich-all', { method: 'POST' })
+      const data = await res.json() as { scored?: number; total?: number; errors?: string[] }
+      setEnrichMsg(`${data.scored ?? 0} van ${data.total ?? 0} leads verrijkt`)
+      void load()
+    } catch {
+      setEnrichMsg('Verrijking mislukt')
+    } finally {
+      setEnriching(false)
     }
   }
 
@@ -94,20 +121,53 @@ export default function LeadsPage() {
     return m
   }, [members])
 
+  const uniqueSources = useMemo(() => {
+    if (!leads) return []
+    const seen = new Set<string>()
+    const ordered: string[] = []
+    for (const l of leads) {
+      if (l.source && !seen.has(l.source)) { seen.add(l.source); ordered.push(l.source) }
+    }
+    return ordered
+  }, [leads])
+
   const filtered = useMemo(() => {
     if (!leads) return []
-    if (dateFilter === 'all') return leads
-    const since = startOf(dateFilter as 'today' | 'week' | 'month')
-    return leads.filter(r => r.created_at && new Date(r.created_at) >= since)
-  }, [leads, dateFilter])
+    let result = leads
+    if (dateFilter !== 'all') {
+      const since = startOf(dateFilter as 'today' | 'week' | 'month')
+      result = result.filter(r => r.created_at && new Date(r.created_at) >= since)
+    }
+    if (sourceFilter && sourceFilter.length > 0) {
+      result = result.filter(r => r.source && sourceFilter.includes(r.source))
+    }
+    return result
+  }, [leads, dateFilter, sourceFilter])
+
+  function toggleSource(src: string) {
+    setSourceFilter(prev => {
+      if (!prev) return [src]
+      const has = prev.includes(src)
+      const next = has ? prev.filter(s => s !== src) : [...prev, src]
+      return next.length === 0 ? null : next
+    })
+  }
 
   return (
     <div className="min-h-[calc(100vh-44px)] bg-bg text-primary">
       <div className="max-w-[1200px] mx-auto px-6 pt-6 pb-12">
 
         {/* Header */}
-        <div className="flex items-center gap-3 mb-5">
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
           <h1 className="text-xl font-extrabold tracking-tight flex-1">Leads</h1>
+          {enrichMsg && (
+            <span className="text-xs text-green-600 font-semibold">{enrichMsg}</span>
+          )}
+          <button onClick={() => void enrichAll()} disabled={enriching || loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg border border-border bg-surface text-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:bg-active transition-colors">
+            {enriching ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
+            {enriching ? 'Verrijken…' : 'Verrijk alle'}
+          </button>
           <button onClick={() => void load()} disabled={loading}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg border border-border bg-surface text-primary cursor-pointer disabled:cursor-wait hover:bg-active transition-colors">
             <RefreshCw size={13} className={cn(loading && 'animate-spin')} />
@@ -117,28 +177,57 @@ export default function LeadsPage() {
 
         {/* Stats */}
         {stats && (
-          <div className="flex gap-2.5 mb-5">
-            <StatTile icon="📋" label="Totaal leads"    value={stats.total}         />
-            <StatTile icon="🔥" label="POTENTIE" value={stats.highPotential} />
-            <StatTile icon="⚡" label="Vandaag"          value={stats.today}         />
+          <div className="flex gap-2.5 mb-5 flex-wrap">
+            <StatTile label="Totaal leads" value={stats.total.toString()} />
+            <StatTile label="Vandaag"      value={stats.today.toString()} />
+            <StatTile label="PIJPLIJN"     value={stats.pipeline > 0 ? fmtRevenue(stats.pipeline) : '—'} wide />
           </div>
         )}
 
-        {/* Date filter */}
-        <div className="flex gap-1 mb-3">
-          {DATE_FILTERS.map(f => (
-            <button key={f.key} onClick={() => setDateFilter(f.key)}
-              className={cn(
-                'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors',
-                dateFilter === f.key
-                  ? 'bg-primary text-white'
-                  : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
-              )}>
-              {f.label}
-            </button>
-          ))}
-          {dateFilter !== 'all' && (
-            <span className="text-xs text-muted self-center ml-1.5">{filtered.length} resultaten</span>
+        {/* Filters row */}
+        <div className="flex flex-col gap-2 mb-3">
+          {/* Date filter */}
+          <div className="flex gap-1 flex-wrap">
+            {DATE_FILTERS.map(f => (
+              <button key={f.key} onClick={() => setDateFilter(f.key)}
+                className={cn(
+                  'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors',
+                  dateFilter === f.key
+                    ? 'bg-primary text-white'
+                    : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
+                )}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* BRON filter */}
+          {uniqueSources.length > 0 && (
+            <div className="flex gap-1 flex-wrap items-center">
+              <span className="text-[11px] font-bold text-muted uppercase tracking-[0.06em] mr-0.5">Bron</span>
+              <button
+                onClick={() => setSourceFilter(null)}
+                className={cn(
+                  'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors',
+                  !sourceFilter
+                    ? 'bg-primary text-white'
+                    : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
+                )}>
+                Alle
+              </button>
+              {uniqueSources.map(src => (
+                <button key={src} onClick={() => toggleSource(src)}
+                  className={cn(
+                    'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors',
+                    sourceFilter?.includes(src)
+                      ? 'bg-primary text-white'
+                      : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
+                  )}>
+                  {src}
+                </button>
+              ))}
+              <span className="text-xs text-muted ml-1">{filtered.length} resultaten</span>
+            </div>
           )}
         </div>
 
@@ -229,13 +318,10 @@ export default function LeadsPage() {
   )
 }
 
-function StatTile({ icon, label, value }: { icon: string; label: string; value: number }) {
+function StatTile({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
   return (
-    <div className="w-[148px] flex-shrink-0 bg-surface border border-border rounded-[10px] px-3.5 py-3 flex flex-col gap-1">
-      <div className="flex items-center gap-1.5">
-        <span className="text-[13px] leading-none">{icon}</span>
-        <span className="text-[11px] font-semibold text-muted uppercase tracking-[0.05em]">{label}</span>
-      </div>
+    <div className={cn('flex-shrink-0 bg-surface border border-border rounded-[10px] px-3.5 py-3 flex flex-col gap-1', wide ? 'min-w-[180px]' : 'w-[148px]')}>
+      <span className="text-[11px] font-semibold text-muted uppercase tracking-[0.05em]">{label}</span>
       <span className="text-[26px] font-extrabold text-primary leading-[1.1] tracking-tight" style={{ fontFamily: MONO }}>
         {value}
       </span>
