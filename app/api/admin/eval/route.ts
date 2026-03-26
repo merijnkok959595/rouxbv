@@ -12,7 +12,6 @@
 import { generateText, generateObject } from 'ai'
 import { openai }                        from '@ai-sdk/openai'
 import { z }                             from 'zod'
-import Retell                            from 'retell-sdk'
 import twilio                            from 'twilio'
 import { buildEvalTools }                from '@/lib/suus-tools'
 import { upsertEvalTestContact }         from '@/lib/ghl-client'
@@ -52,36 +51,8 @@ async function fetchTwilioMessages(limit = 200, since?: Date): Promise<string[]>
   }
 }
 
-// ─── Fetch Retell call transcripts ───────────────────────────────────────────
-
-async function fetchRetellTranscripts(limit = 50, since?: Date): Promise<string[]> {
-  const key = process.env.RETELL_API_KEY
-  if (!key) return []
-
-  try {
-    const client = new Retell({ apiKey: key })
-    const calls  = await client.call.list({ limit })
-
-    const sinceMs = since?.getTime() ?? 0
-    const utterances: string[] = []
-    for (const call of calls) {
-      // Filter by start_timestamp if since is provided
-      const ts = (call as { start_timestamp?: number }).start_timestamp ?? 0
-      if (sinceMs && ts < sinceMs) continue
-
-      const transcript = (call as { transcript?: { role: string; content: string }[] }).transcript ?? []
-      for (const turn of transcript) {
-        if (turn.role === 'user' && turn.content?.trim().length > 3) {
-          utterances.push(turn.content.trim())
-        }
-      }
-    }
-    return utterances
-  } catch (err) {
-    console.warn('[eval/retell]', err)
-    return []
-  }
-}
+// Retell transcripts removed — no longer using Retell SDK
+async function fetchRetellTranscripts(_limit = 50, _since?: Date): Promise<string[]> { return [] }
 
 // ─── Normalize raw messages to standalone CRM commands ───────────────────────
 // Translates vague sales rep shorthand ("Voeg toe", "Maak aan") into complete,

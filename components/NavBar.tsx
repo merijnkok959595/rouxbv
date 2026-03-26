@@ -10,6 +10,7 @@ const NAV = [
   { href: '/suus',         label: 'SUUS'        },
   { href: '/formulier',    label: 'Formulier'    },
   { href: '/leads',        label: 'Leads'        },
+  { href: '/awards',       label: 'Awards'       },
   { href: '/instellingen', label: 'Instellingen' },
   { href: '/admin',        label: 'Admin'        },
   { href: '/test',         label: 'Test'         },

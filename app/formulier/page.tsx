@@ -35,7 +35,8 @@ type TeamMember = { id: string; naam: string; color: string | null; functie?: st
 type Phase = 'idle' | 'saving' | 'enriching' | 'done'
 
 export default function FormulierPage() {
-  const formRef = useRef<HTMLFormElement>(null)
+  const formRef        = useRef<HTMLFormElement>(null)
+  const lateContactRef = useRef<string | null>(null) // for background retry
   const [phase,        setPhase]        = useState<Phase>('idle')
   const [error,        setError]        = useState<string | null>(null)
   const [savedContact, setSavedContact] = useState<SavedContact | null>(null)
@@ -101,6 +102,35 @@ export default function FormulierPage() {
       .catch(() => {})
       .finally(() => setLoadingTeam(false))
   }, [])
+
+  // Background retry: if polling missed the label, keep checking for up to 60s after done
+  useEffect(() => {
+    if (phase !== 'done' || enrichResult?.label) return
+    const contactId = lateContactRef.current
+    if (!contactId) return
+
+    let cancelled = false
+    const deadline = Date.now() + 60_000
+    const delays   = [4000, 5000, 6000, 8000, 10000, 12000, 15000]
+
+    async function retry() {
+      for (const delay of delays) {
+        if (cancelled || Date.now() >= deadline) break
+        await new Promise(r => setTimeout(r, delay))
+        if (cancelled) break
+        try {
+          const res  = await fetch(`/api/contacts/${contactId}`)
+          const data = await res.json() as { label?: string | null; revenue?: number | null }
+          if (data.label) {
+            setEnrichResult({ label: data.label, revenue: data.revenue ?? null, summary: null })
+            break
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    void retry()
+    return () => { cancelled = true }
+  }, [phase, enrichResult?.label])
 
   function persistBeursName(name: string) {
     setBeursName(name)
@@ -211,6 +241,7 @@ export default function FormulierPage() {
       try { localStorage.setItem(SOURCE_STORAGE_KEY, source) } catch { /* ignore */ }
 
       const { status: formStatus, channel: _ch, ...contactFields } = body
+      lateContactRef.current = data.id
       setSavedContact({ ...contactFields, id: data.id, assigned_to: data.assigned_to ?? null, contact_type: formStatus || 'lead', opening_hours: openingHours })
       formRef.current.reset()
       setAddress(''); setCity(''); setPostcode(''); setCountry('Nederland')

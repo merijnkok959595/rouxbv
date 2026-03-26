@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Loader2, RefreshCw, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DateRangePicker, type DateRange } from '@/components/DateRangePicker'
 
 const MONO = "'SF Mono','Fira Code',ui-monospace,monospace"
 
@@ -20,29 +21,22 @@ const TYPE_META: Record<string, { bg: string; color: string; label: string }> = 
 }
 
 type Lead = {
-  id:           string
-  company_name: string | null
-  city:         string | null
-  type:         string | null
-  label:        string | null
-  revenue:      number | null
-  assigned_to:  string | null
-  source:       string | null
-  whatsapp:     boolean | null
-  ghl_synced:   boolean | null
-  created_at:   string | null
+  id:            string
+  company_name:  string | null
+  city:          string | null
+  type:          string | null
+  label:         string | null
+  revenue:       number | null
+  assigned_to:   string | null
+  source:        string | null
+  whatsapp:      boolean | null
+  ghl_synced:    boolean | null
+  created_at:    string | null
+  custom_fields: { created_by?: string; intake_notes?: string } | null
 }
 
 type TeamMember = { id: string; naam: string; color: string | null }
 type Stats      = { total: number; pipeline: number; today: number }
-type DateFilter = 'all' | 'today' | 'week' | 'month'
-
-const DATE_FILTERS: { key: DateFilter; label: string }[] = [
-  { key: 'all',   label: 'Alles'   },
-  { key: 'today', label: 'Vandaag' },
-  { key: 'week',  label: 'Week'    },
-  { key: 'month', label: 'Maand'   },
-]
 
 function Bool({ val }: { val: boolean | null }) {
   const on = val === true
@@ -54,17 +48,18 @@ function Bool({ val }: { val: boolean | null }) {
   )
 }
 
-function startOf(unit: 'today' | 'week' | 'month'): Date {
-  const d = new Date()
-  if (unit === 'today') { d.setHours(0,0,0,0); return d }
-  if (unit === 'week')  { d.setHours(0,0,0,0); d.setDate(d.getDate() - d.getDay() + (d.getDay() === 0 ? -6 : 1)); return d }
-  d.setHours(0,0,0,0); d.setDate(1); return d
-}
 
 function fmtRevenue(v: number): string {
   if (v >= 1_000_000) return `€ ${(v / 1_000_000).toFixed(1).replace('.', ',')}M`
   if (v >= 1_000)     return `€ ${Math.round(v / 1_000)}K`
   return `€ ${v.toLocaleString('nl-NL')}`
+}
+
+/** "Ronald Stavast" → "RON STA", "Vincent" → "VIN" */
+function abbrev(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0].slice(0, 4).toUpperCase()
+  return `${parts[0].slice(0, 3)} ${parts[parts.length - 1].slice(0, 3)}`.toUpperCase()
 }
 
 export default function LeadsPage() {
@@ -73,7 +68,7 @@ export default function LeadsPage() {
   const [loading,        setLoading]        = useState(true)
   const [stats,          setStats]          = useState<Stats | null>(null)
   const [members,        setMembers]        = useState<TeamMember[]>([])
-  const [dateFilter,     setDateFilter]     = useState<DateFilter>('all')
+  const [dateRange,      setDateRange]      = useState<DateRange>(null)
   const [sourceFilter,   setSourceFilter]   = useState<string[] | null>(null)
   const [enriching,      setEnriching]      = useState(false)
   const [enrichMsg,      setEnrichMsg]      = useState<string | null>(null)
@@ -134,15 +129,20 @@ export default function LeadsPage() {
   const filtered = useMemo(() => {
     if (!leads) return []
     let result = leads
-    if (dateFilter !== 'all') {
-      const since = startOf(dateFilter as 'today' | 'week' | 'month')
-      result = result.filter(r => r.created_at && new Date(r.created_at) >= since)
+    if (dateRange) {
+      const from = new Date(dateRange.from + 'T00:00:00')
+      const to   = new Date(dateRange.to   + 'T23:59:59')
+      result = result.filter(r => {
+        if (!r.created_at) return false
+        const d = new Date(r.created_at)
+        return d >= from && d <= to
+      })
     }
     if (sourceFilter && sourceFilter.length > 0) {
       result = result.filter(r => r.source && sourceFilter.includes(r.source))
     }
     return result
-  }, [leads, dateFilter, sourceFilter])
+  }, [leads, dateRange, sourceFilter])
 
   function toggleSource(src: string) {
     setSourceFilter(prev => {
@@ -184,26 +184,14 @@ export default function LeadsPage() {
           </div>
         )}
 
-        {/* Filters row */}
-        <div className="flex flex-col gap-2 mb-3">
-          {/* Date filter */}
-          <div className="flex gap-1 flex-wrap">
-            {DATE_FILTERS.map(f => (
-              <button key={f.key} onClick={() => setDateFilter(f.key)}
-                className={cn(
-                  'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors',
-                  dateFilter === f.key
-                    ? 'bg-primary text-white'
-                    : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
-                )}>
-                {f.label}
-              </button>
-            ))}
-          </div>
+        {/* Filters row — datum links, BRON rechts */}
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          {/* Date picker — left */}
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
 
-          {/* BRON filter */}
+          {/* BRON filter — right */}
           {uniqueSources.length > 0 && (
-            <div className="flex gap-1 flex-wrap items-center">
+            <div className="flex gap-1 flex-wrap items-center justify-end">
               <span className="text-[11px] font-bold text-muted uppercase tracking-[0.06em] mr-0.5">Bron</span>
               <button
                 onClick={() => setSourceFilter(null)}
@@ -226,7 +214,7 @@ export default function LeadsPage() {
                   {src}
                 </button>
               ))}
-              <span className="text-xs text-muted ml-1">{filtered.length} resultaten</span>
+              <span className="text-xs text-muted ml-1">{filtered.length}</span>
             </div>
           )}
         </div>
@@ -244,7 +232,7 @@ export default function LeadsPage() {
             <table className="w-full border-collapse min-w-[800px]">
               <thead>
                 <tr>
-                  {['Bedrijf','Plaats','Type','Bron','Label','Volume','Toegewezen aan','WhatsApp','GHL','Datum'].map(h => (
+                  {['Bedrijf','Plaats','Type','Bron','Label','Volume','Door','Aan','WhatsApp','GHL','Datum'].map(h => (
                     <th key={h} className="px-3.5 py-2.5 text-left text-xs font-bold text-primary uppercase tracking-[0.05em] border-b border-border whitespace-nowrap">
                       {h}
                     </th>
@@ -254,7 +242,7 @@ export default function LeadsPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-3.5 py-8 text-center text-sm text-muted border-b border-border">
+                    <td colSpan={11} className="px-3.5 py-8 text-center text-sm text-muted border-b border-border">
                       Geen leads gevonden.
                     </td>
                   </tr>
@@ -289,12 +277,29 @@ export default function LeadsPage() {
                         style={{ fontFamily: MONO }}>
                         {row.revenue != null ? row.revenue.toLocaleString('nl-NL') : '—'}
                       </td>
+                      {/* Door — aangemaakt door */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
+                        {(() => {
+                          const naam  = row.custom_fields?.created_by?.trim()
+                          if (!naam) return <span className="text-muted text-xs">—</span>
+                          const tm    = memberMap[naam]
+                          const color = tm?.color ?? '#64748b'
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-[0.05em] whitespace-nowrap"
+                              style={{ backgroundColor: `${color}18`, color, border: `1px solid ${color}30` }}>
+                              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                              {abbrev(naam)}
+                            </span>
+                          )
+                        })()}
+                      </td>
+                      {/* Aan — toegewezen aan */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {row.assigned_to ? (
                           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-[0.05em] whitespace-nowrap"
                             style={{ backgroundColor: `${mColor}18`, color: mColor, border: `1px solid ${mColor}30` }}>
                             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: mColor }} />
-                            {row.assigned_to}
+                            {abbrev(row.assigned_to)}
                           </span>
                         ) : <span className="text-muted text-xs">—</span>}
                       </td>
@@ -303,7 +308,7 @@ export default function LeadsPage() {
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[11px] text-muted whitespace-nowrap"
                         style={{ fontFamily: MONO }}>
                         {row.created_at
-                          ? new Date(row.created_at).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+                          ? new Date(row.created_at).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '')
                           : '—'}
                       </td>
                     </tr>

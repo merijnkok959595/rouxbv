@@ -17,7 +17,7 @@ export async function GET() {
     const { data, error } = await sb
       .from('contacts')
       .select(
-        'id, company_name, city, type, label, revenue, assigned_to, source, whatsapp, ghl_synced, created_at',
+        'id, company_name, city, type, label, revenue, assigned_to, source, whatsapp, ghl_synced, created_at, custom_fields',
       )
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false })

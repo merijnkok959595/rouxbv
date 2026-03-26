@@ -480,15 +480,15 @@ export default function SuusPage() {
       <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
         <div className="max-w-[720px] mx-auto px-4 pt-14 pb-4 flex flex-col max-sm:px-3 relative">
 
-          {/* Bellen button — top-right, always visible */}
+          {/* Bellen button — top-right, belt het SUUS Twilio nummer */}
           <div className="absolute top-4 right-4 max-sm:right-3 z-10">
-            <button
-              onClick={toggleCall}
+            <a
+              href="tel:+3197010275858"
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-[12px] font-medium rounded-full hover:opacity-85 transition-opacity"
             >
               <Phone size={13} strokeWidth={2} />
               Bellen
-            </button>
+            </a>
           </div>
 
           {/* Empty state */}
