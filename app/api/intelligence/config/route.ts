@@ -1,29 +1,27 @@
 import { NextResponse } from 'next/server'
-import { resolveOrgId, adminDb } from '@/lib/auth/resolveOrg'
+import { adminSupabase } from '@/lib/supabase'
 
-const SB_URL = () => process.env.NEXT_PUBLIC_SUPABASE_URL!.trim()
-const SB_KEY = () => process.env.SUPABASE_SERVICE_ROLE_KEY!.trim()
+export const runtime = 'nodejs'
 
-async function fetchConfig(oid: string) {
-  const url = `${SB_URL()}/rest/v1/intelligence_config?organization_id=eq.${oid}&limit=1`
-  const res = await fetch(url, {
-    headers: {
-      apikey:        SB_KEY(),
-      Authorization: `Bearer ${SB_KEY()}`,
-      Accept:        'application/json',
-    },
-    cache: 'no-store',
-  })
-  if (!res.ok) return null
-  const rows = await res.json() as Record<string, unknown>[]
-  return rows[0] ?? null
-}
+const orgId = () => process.env.ORGANIZATION_ID?.trim() ?? null
 
 export async function GET() {
-  const oid = await resolveOrgId()
+  const oid = orgId()
   if (!oid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const cfg = await fetchConfig(oid)
-  return NextResponse.json(cfg ?? {})
+
+  try {
+    const { data, error } = await adminSupabase()
+      .from('intelligence_config')
+      .select('*')
+      .eq('organization_id', oid)
+      .limit(1)
+      .maybeSingle()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(data ?? {})
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
 }
 
 const WRITABLE = new Set([
@@ -39,44 +37,35 @@ const WRITABLE = new Set([
 ])
 
 export async function PUT(req: Request) {
-  const oid = await resolveOrgId()
+  const oid = orgId()
   if (!oid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body   = await req.json()
-  const update: Record<string, unknown> = {}
+  try {
+    const body   = await req.json()
+    const update: Record<string, unknown> = {}
 
-  for (const key of Object.keys(body)) {
-    if (WRITABLE.has(key)) update[key] = body[key] ?? null
+    for (const key of Object.keys(body)) {
+      if (WRITABLE.has(key)) update[key] = body[key] ?? null
+    }
+
+    if (Object.keys(update).length === 0) {
+      return NextResponse.json({ error: 'No valid fields' }, { status: 400 })
+    }
+
+    const db = adminSupabase()
+
+    await db.from('intelligence_config')
+      .upsert({ organization_id: oid }, { onConflict: 'organization_id', ignoreDuplicates: true })
+
+    const { data, error } = await db.from('intelligence_config')
+      .update(update)
+      .eq('organization_id', oid)
+      .select()
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(data ?? {})
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
-
-  if (Object.keys(update).length === 0) {
-    return NextResponse.json({ error: 'No valid fields' }, { status: 400 })
-  }
-
-  const db = adminDb()
-
-  // Ensure row exists
-  await db.from('intelligence_config')
-    .upsert({ organization_id: oid }, { onConflict: 'organization_id', ignoreDuplicates: true })
-
-  const patchUrl = `${SB_URL()}/rest/v1/intelligence_config?organization_id=eq.${oid}`
-  const patchRes = await fetch(patchUrl, {
-    method:  'PATCH',
-    headers: {
-      apikey:         SB_KEY(),
-      Authorization:  `Bearer ${SB_KEY()}`,
-      'Content-Type': 'application/json',
-      Prefer:         'return=representation',
-    },
-    body: JSON.stringify(update),
-    cache: 'no-store',
-  })
-
-  if (!patchRes.ok) {
-    const err = await patchRes.text()
-    return NextResponse.json({ error: err }, { status: 500 })
-  }
-
-  const rows = await patchRes.json() as Record<string, unknown>[]
-  return NextResponse.json(rows[0] ?? {})
 }

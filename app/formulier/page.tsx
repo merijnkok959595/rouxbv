@@ -4,18 +4,18 @@ import { useRef, useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   Briefcase, User, MapPin, Tag, FileText, RotateCcw,
-  Flag, Loader2, ArrowUpRight, Mic, StopCircle,
+  Flag, Loader2, ArrowUpRight, Mic,
 } from 'lucide-react'
 import PlacesCompanyInput, { type PlaceResult } from '@/components/PlacesCompanyInput'
-import { beursOptionsForYear, defaultBeursSource, SOURCE_STORAGE_KEY } from '@/lib/beurs-sources'
-import { nationalDigitsToE164NL, countNlNationalDigits } from '@/lib/phone-nl'
+import { BEURS_OPTIONS, buildSource, defaultBeursName, SOURCE_STORAGE_KEY } from '@/lib/beurs-sources'
+import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input'
+import 'react-phone-number-input/style.css'
 import { Field, TwoCol, FieldSection } from '@/components/ui/field'
 import { cn } from '@/lib/utils'
 
 const MONO = "'SF Mono','Fira Code',monospace"
-const YEAR = new Date().getFullYear()
+const YEAR    = new Date().getFullYear()
 const CHANNEL = 'OFFLINE'
-const SOURCE_OPTIONS = beursOptionsForYear(YEAR)
 
 const LABEL_META: Record<string, { bg: string; text: string; border: string; title: string }> = {
   A: { bg: 'rgba(220,38,38,0.08)',  text: '#DC2626', border: 'rgba(220,38,38,0.15)',  title: 'Top prospect' },
@@ -31,7 +31,7 @@ type SavedContact = {
   first_name: string; last_name: string; phone: string; email: string
   contact_type: string; notes: string; opening_hours: PlaceResult['opening_hours']
 }
-type TeamMember = { id: string; naam: string; color: string | null }
+type TeamMember = { id: string; naam: string; color: string | null; functie?: string | null }
 type Phase = 'idle' | 'saving' | 'enriching' | 'done'
 
 export default function FormulierPage() {
@@ -45,29 +45,66 @@ export default function FormulierPage() {
   const [postcode,     setPostcode]     = useState('')
   const [country,      setCountry]      = useState('Nederland')
   const [openingHours, setOpeningHours] = useState<PlaceResult['opening_hours']>(null)
-  const [source,       setSource]       = useState(defaultBeursSource(YEAR))
-  const [phoneNational, setPhoneNational] = useState('')
-  const [teamMembers,  setTeamMembers]  = useState<TeamMember[]>([])
+  const [beursName,    setBeursName]    = useState(defaultBeursName())
+  const [contactType,  setContactType]  = useState<'lead' | 'customer'>('lead')
+  const [phoneValue,     setPhoneValue]     = useState<string | undefined>(undefined)
+  const [teamMembers,    setTeamMembers]    = useState<TeamMember[]>([])
+  const [loadingTeam,    setLoadingTeam]    = useState(true)
+  const [assignedTo,     setAssignedTo]     = useState('')
+  const [assignedOpen,   setAssignedOpen]   = useState(false)
+  const assignedRef = useRef<HTMLDivElement>(null)
+  const [aangemeldDoor,  setAangemeldDoor]  = useState('')
+  const [creatorOpen,    setCreatorOpen]    = useState(false)
+  const creatorRef = useRef<HTMLDivElement>(null)
   const [notes,        setNotes]        = useState('')
   const [recording,    setRecording]    = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef   = useRef<Blob[]>([])
+  const audioCtxRef      = useRef<AudioContext | null>(null)
+  const analyserRef      = useRef<AnalyserNode | null>(null)
+  const animFrameRef     = useRef<number>(0)
+  const [recBars,        setRecBars]        = useState([0.3, 0.5, 0.3])
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (creatorRef.current && !creatorRef.current.contains(e.target as Node)) {
+        setCreatorOpen(false)
+      }
+      if (assignedRef.current && !assignedRef.current.contains(e.target as Node)) {
+        setAssignedOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(SOURCE_STORAGE_KEY)
-      if (saved && SOURCE_OPTIONS.includes(saved)) setSource(saved)
+      const savedBeurs = localStorage.getItem(SOURCE_STORAGE_KEY)
+      if (savedBeurs && BEURS_OPTIONS.includes(savedBeurs)) setBeursName(savedBeurs)
     } catch { /* ignore */ }
     fetch('/api/settings/employees')
       .then(r => r.json())
-      .then(d => { if (Array.isArray(d.members)) setTeamMembers(d.members) })
+      .then((d: TeamMember[]) => {
+        const list: TeamMember[] = Array.isArray(d) ? d : (d as { members?: TeamMember[] }).members ?? []
+        setTeamMembers(list)
+        // Default: logged-in user from localStorage, else last used, else first employee
+        const loggedIn  = typeof window !== 'undefined' ? localStorage.getItem('roux_active_employee') : null
+        const lastUsed  = typeof window !== 'undefined' ? localStorage.getItem('roux_formulier_creator') : null
+        const byId      = (id: string | null) => list.find(m => m.id === id)?.naam ?? null
+        const byName    = (n: string | null) => list.find(m => m.naam === n)?.naam ?? null
+        setAangemeldDoor(
+          byId(loggedIn) ?? byName(lastUsed) ?? list[0]?.naam ?? ''
+        )
+      })
       .catch(() => {})
+      .finally(() => setLoadingTeam(false))
   }, [])
 
-  function persistSource(s: string) {
-    setSource(s)
-    try { localStorage.setItem(SOURCE_STORAGE_KEY, s) } catch { /* ignore */ }
+  function persistBeursName(name: string) {
+    setBeursName(name)
+    try { localStorage.setItem(SOURCE_STORAGE_KEY, name) } catch { /* ignore */ }
   }
 
   function handlePlaceSelect(p: PlaceResult) {
@@ -78,10 +115,37 @@ export default function FormulierPage() {
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+
+      // Web Audio API for bar visualisation
+      const ctx      = new AudioContext()
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 64
+      ctx.createMediaStreamSource(stream).connect(analyser)
+      audioCtxRef.current  = ctx
+      analyserRef.current  = analyser
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const tick = () => {
+        analyser.getByteFrequencyData(data)
+        const avg = (start: number, end: number) => {
+          let s = 0; for (let i = start; i < end; i++) s += data[i]
+          return Math.min(1, (s / (end - start)) / 140)
+        }
+        setRecBars([
+          Math.max(0.15, avg(1, 4)),
+          Math.max(0.25, avg(4, 10)),
+          Math.max(0.15, avg(10, 16)),
+        ])
+        animFrameRef.current = requestAnimationFrame(tick)
+      }
+      animFrameRef.current = requestAnimationFrame(tick)
+
       const mr = new MediaRecorder(stream)
       audioChunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
       mr.onstop = async () => {
+        cancelAnimationFrame(animFrameRef.current)
+        audioCtxRef.current?.close(); audioCtxRef.current = null
+        setRecBars([0.3, 0.5, 0.3])
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
         setTranscribing(true)
@@ -105,7 +169,9 @@ export default function FormulierPage() {
   function startOver() {
     formRef.current?.reset()
     setAddress(''); setCity(''); setPostcode(''); setCountry('Nederland')
-    setPhoneNational(''); setNotes('')
+    setPhoneValue(undefined); setNotes('')
+    setBeursName(defaultBeursName()); setContactType('lead'); setAssignedTo('')
+    // Keep aangemeldDoor — persists to last used
     setOpeningHours(null); setError(null)
     setSavedContact(null); setEnrichResult(null); setPhase('idle')
   }
@@ -114,9 +180,10 @@ export default function FormulierPage() {
     e.preventDefault()
     if (!formRef.current) return
     setError(null)
-    const digits = countNlNationalDigits(phoneNational)
-    if (digits < 9) { setError('Vul een geldig mobiel nummer in (9 cijfers na +31).'); return }
-    const phoneE164 = nationalDigitsToE164NL(phoneNational)
+    if (!phoneValue || !isValidPhoneNumber(phoneValue)) {
+      setError('Vul een geldig telefoonnummer in.'); return
+    }
+    const phoneE164 = phoneValue
     const fd = new FormData(formRef.current)
     const body = {
       company:    fd.get('company')     as string,
@@ -125,9 +192,10 @@ export default function FormulierPage() {
       email:      fd.get('email')       as string,
       phone: phoneE164, address, city, postcode, country,
       opening_hours: openingHours,
-      assigned_to: fd.get('assigned_to') as string,
-      status:      fd.get('status')      as string,
-      notes, source, channel: CHANNEL,
+      assigned_to:    assignedTo,
+      status:         contactType,
+      created_by:     aangemeldDoor,
+      notes, source: buildSource(beursName, YEAR), channel: CHANNEL,
     }
     try {
       setPhase('saving')
@@ -146,7 +214,7 @@ export default function FormulierPage() {
       setSavedContact({ ...contactFields, id: data.id, assigned_to: data.assigned_to ?? null, contact_type: formStatus || 'lead', opening_hours: openingHours })
       formRef.current.reset()
       setAddress(''); setCity(''); setPostcode(''); setCountry('Nederland')
-      setPhoneNational(''); setNotes(''); setOpeningHours(null)
+      setPhoneValue(undefined); setNotes(''); setOpeningHours(null)
 
       setPhase('enriching')
       try {
@@ -181,7 +249,7 @@ export default function FormulierPage() {
   return (
     <div className="min-h-screen bg-bg">
       <div className="flex justify-center">
-        <div className="w-full max-w-[520px] px-4 pt-8 pb-16">
+        <div className="w-full max-w-[520px] px-4 pt-8 pb-safe-bottom pb-16">
 
           {/* Header */}
           <div className="text-center mb-5">
@@ -208,14 +276,14 @@ export default function FormulierPage() {
           <div className={showResult ? 'hidden' : 'block'}>
             <form
               ref={formRef} onSubmit={handleSubmit}
-              className="flex flex-col bg-surface border border-border rounded-xl overflow-hidden"
+              className="flex flex-col bg-surface border border-border rounded-xl"
             >
               <FieldSection title="Bedrijf" icon={<Briefcase size={13} />}>
                 <div>
                   <PlacesCompanyInput
                     required autoFocus onSelect={handlePlaceSelect}
                     inputStyle={{ width: '100%', padding: '10px 12px', fontSize: '15px', color: 'var(--text)', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '7px', outline: 'none', boxSizing: 'border-box' }}
-                    placeholder="bijv. Grand Café De Hoorn BV"
+                    placeholder="Grootmeester"
                   />
                   <p className="text-xs text-muted mt-1.5">
                     Begin te typen — adres vult automatisch in via Google Places
@@ -226,16 +294,16 @@ export default function FormulierPage() {
               <FieldSection title="Adres" icon={<MapPin size={13} />}>
                 <Field label="Straat & nummer">
                   <input name="address" value={address} onChange={e => setAddress(e.target.value)}
-                    placeholder="Marktstraat 14" className="field-input" />
+                    placeholder="Galileistraat 19" className="field-input" />
                 </Field>
                 <TwoCol>
                   <Field label="Stad">
                     <input name="city" value={city} onChange={e => setCity(e.target.value)}
-                      placeholder="Rotterdam" className="field-input" />
+                      placeholder="Heerhugowaard" className="field-input" />
                   </Field>
                   <Field label="Postcode">
                     <input name="postcode" value={postcode} onChange={e => setPostcode(e.target.value)}
-                      placeholder="3011 BV" className="field-input" />
+                      placeholder="2704 SE" inputMode="text" autoCapitalize="characters" className="field-input" />
                   </Field>
                 </TwoCol>
                 <Field label="Land">
@@ -247,47 +315,89 @@ export default function FormulierPage() {
               <FieldSection title="Contactpersoon" icon={<User size={13} />}>
                 <TwoCol>
                   <Field label="Voornaam" required>
-                    <input name="first_name" required placeholder="Thomas" className="field-input" />
+                    <input name="first_name" required placeholder="Vincent" className="field-input" />
                   </Field>
                   <Field label="Achternaam">
-                    <input name="last_name" placeholder="van den Berg" className="field-input" />
+                    <input name="last_name" placeholder="Jongens" className="field-input" />
                   </Field>
                 </TwoCol>
                 <Field label="E-mailadres">
-                  <input name="email" type="email" placeholder="thomas@grandcafe.nl" className="field-input" />
+                  <input name="email" type="email" placeholder="info@rouxbv.nl" className="field-input" />
                 </Field>
                 <Field label="Telefoonnummer" required>
-                  <div className="flex items-stretch rounded-lg border border-border overflow-hidden bg-surface">
-                    <span className="flex items-center gap-1.5 px-3 text-sm font-semibold text-primary bg-active border-r border-border flex-shrink-0">
-                      <span className="text-lg leading-none" title="Nederland">🇳🇱</span>
-                      +31
-                    </span>
-                    <input
-                      type="tel" inputMode="numeric" autoComplete="tel-national" required
-                      value={phoneNational} onChange={e => setPhoneNational(e.target.value)}
-                      placeholder="6 12345678" aria-label="Telefoonnummer zonder landcode"
-                      className="field-input flex-1 min-w-0 border-0 rounded-none focus:ring-0"
-                    />
-                  </div>
-                  <p className="text-xs text-muted mt-1 leading-snug">
-                    Alleen je Nederlandse nummer invoeren; +31 wordt automatisch toegevoegd.
-                  </p>
+                  <PhoneInput
+                    defaultCountry="NL"
+                    value={phoneValue}
+                    onChange={setPhoneValue}
+                    international
+                    countryCallingCodeEditable={false}
+                    placeholder="6 12 345 678"
+                  />
                 </Field>
               </FieldSection>
 
               <FieldSection title="Classificatie" icon={<Tag size={13} />}>
                 <TwoCol>
                   <Field label="Toegewezen aan">
-                    <select name="assigned_to" className="field-input cursor-pointer">
-                      <option value="">Auto</option>
-                      {teamMembers.map(m => <option key={m.id} value={m.naam}>{m.naam}</option>)}
-                    </select>
+                    <div ref={assignedRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setAssignedOpen(o => !o)}
+                        disabled={loadingTeam}
+                        className="field-input w-full flex items-center gap-2.5 cursor-pointer text-left"
+                      >
+                        {assignedTo ? (() => {
+                          const m = teamMembers.find(m => m.naam === assignedTo)
+                          return m ? (
+                            <>
+                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 inline-block"
+                                style={{ backgroundColor: m.color || '#888' }} />
+                              <span className="flex-1 truncate text-sm">{m.naam}</span>
+                            </>
+                          ) : <span className="flex-1 text-sm">{assignedTo}</span>
+                        })() : <span className="flex-1 text-sm text-muted">Auto</span>}
+                        <svg className="w-3.5 h-3.5 text-muted flex-shrink-0" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                      {assignedOpen && (
+                        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg shadow-lg overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => { setAssignedTo(''); setAssignedOpen(false) }}
+                            className={cn(
+                              'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left hover:bg-active transition-colors',
+                              assignedTo === '' && 'bg-active font-medium',
+                            )}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-border bg-active inline-block" />
+                            <span className="flex-1 truncate">Auto</span>
+                            <span className="text-[11px] text-muted">routing logica</span>
+                          </button>
+                          {teamMembers.map(m => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => { setAssignedTo(m.naam); setAssignedOpen(false) }}
+                              className={cn(
+                                'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left hover:bg-active transition-colors',
+                                assignedTo === m.naam && 'bg-active font-medium',
+                              )}
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 inline-block"
+                                style={{ backgroundColor: m.color || '#888' }} />
+                              <span className="flex-1 truncate">{m.naam}</span>
+                              {m.functie && <span className="text-[11px] text-muted">{m.functie}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </Field>
                   <Field label="Type">
-                    <select name="status" className="field-input cursor-pointer">
+                    <select value={contactType} onChange={e => setContactType(e.target.value as 'lead' | 'customer')} className="field-input cursor-pointer">
                       <option value="lead">Lead</option>
                       <option value="customer">Klant</option>
-                      <option value="employee">Medewerker</option>
                     </select>
                   </Field>
                 </TwoCol>
@@ -298,7 +408,7 @@ export default function FormulierPage() {
                   <textarea
                     name="notes" rows={4}
                     value={notes} onChange={e => setNotes(e.target.value)}
-                    placeholder={transcribing ? 'Transcriberen…' : 'Interesse in… Opening gepland op… Bijzonderheden…'}
+                    placeholder={transcribing ? 'Transcriberen…' : 'Klant wilt graag een proeverij doen…'}
                     disabled={transcribing}
                     className="field-input resize-y leading-relaxed pr-11"
                   />
@@ -308,45 +418,115 @@ export default function FormulierPage() {
                     title={recording ? 'Stop opname' : 'Dicteer notities'}
                     disabled={transcribing}
                     className={cn(
-                      'absolute top-2 right-2 w-8 h-8 rounded-md flex items-center justify-center border-none transition-all',
-                      recording
-                        ? 'bg-red-50 text-red-600 animate-[recPulse_1s_ease-in-out_infinite]'
-                        : 'bg-active text-muted hover:text-primary',
-                      transcribing && 'opacity-50 cursor-default',
+                      'absolute top-2 right-2 rounded-md flex items-center justify-center border-none transition-all',
+                      recording ? 'h-8 px-2.5 gap-[3px] bg-[#0d0d0d]' : 'w-8 h-8 bg-[#0d0d0d] hover:bg-black',
+                      transcribing && 'opacity-40 cursor-default',
                     )}
                   >
-                    {recording ? <StopCircle size={14} /> : <Mic size={14} />}
+                    {recording ? (
+                      recBars.map((h, i) => (
+                        <span
+                          key={i}
+                          className="w-[3px] rounded-full bg-white transition-all duration-75"
+                          style={{ height: `${Math.round(6 + h * 18)}px` }}
+                        />
+                      ))
+                    ) : transcribing ? (
+                      <Loader2 size={14} className="text-white animate-spin" />
+                    ) : (
+                      <Mic size={14} className="text-white" />
+                    )}
                   </button>
                 </div>
                 {(recording || transcribing) && (
-                  <p className="flex items-center gap-1.5 text-xs text-red-600">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-[recPulse_1s_ease-in-out_infinite]" />
-                    {transcribing ? 'Transcriberen…' : 'Opname bezig — klik stop om klaar te zijn'}
+                  <p className="flex items-center gap-1.5 text-xs text-muted mt-1">
+                    <span className={cn('w-1.5 h-1.5 rounded-full', recording ? 'bg-red-500 animate-[recPulse_1s_ease-in-out_infinite]' : 'bg-muted')} />
+                    {transcribing ? 'Transcriberen…' : 'Opname bezig — klik om te stoppen'}
                   </p>
                 )}
               </FieldSection>
 
               <FieldSection title="Herkomst" icon={<Flag size={13} />}>
-                <TwoCol>
-                  <Field label="Beurs / herkomst">
-                    <select name="source" value={source} onChange={e => persistSource(e.target.value)}
+                <div className="grid grid-cols-[1fr_auto_1fr] max-[420px]:grid-cols-1 gap-3">
+                  <Field label="Beurs">
+                    <select value={beursName} onChange={e => persistBeursName(e.target.value)}
                       className="field-input cursor-pointer">
-                      {SOURCE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      {BEURS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
+                  </Field>
+                  <Field label="Jaar">
+                    <div className="field-input bg-active text-muted cursor-default select-none flex items-center justify-center font-semibold text-sm min-w-[64px]"
+                      style={{ fontFamily: MONO }}>
+                      {YEAR}
+                    </div>
                   </Field>
                   <Field label="Channel">
-                    <select disabled value={CHANNEL} className="field-input text-muted bg-active cursor-not-allowed">
-                      <option>{CHANNEL}</option>
-                    </select>
+                    <div className="field-input bg-active text-muted cursor-default select-none flex items-center font-semibold text-sm"
+                      style={{ fontFamily: MONO }}>
+                      {CHANNEL}
+                    </div>
                   </Field>
-                </TwoCol>
+                </div>
+                <Field label="Aangemaakt door">
+                  <div ref={creatorRef} className="relative">
+                    {/* Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => setCreatorOpen(o => !o)}
+                      disabled={loadingTeam}
+                      className="field-input w-full flex items-center gap-2.5 cursor-pointer text-left"
+                    >
+                      {(() => {
+                        const m = teamMembers.find(m => m.naam === aangemeldDoor)
+                        return m ? (
+                          <>
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 inline-block"
+                              style={{ backgroundColor: m.color || '#888' }} />
+                            <span className="flex-1 truncate text-sm">{m.naam}</span>
+                          </>
+                        ) : <span className="flex-1 text-sm text-muted">Selecteer…</span>
+                      })()}
+                      <svg className="w-3.5 h-3.5 text-muted flex-shrink-0" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+
+                    {/* Dropdown */}
+                    {creatorOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg shadow-lg overflow-hidden">
+                        {teamMembers.map(m => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              setAangemeldDoor(m.naam)
+                              try { localStorage.setItem('roux_formulier_creator', m.naam) } catch { /* ignore */ }
+                              setCreatorOpen(false)
+                            }}
+                            className={cn(
+                              'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left hover:bg-active transition-colors',
+                              aangemeldDoor === m.naam && 'bg-active font-medium',
+                            )}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 inline-block"
+                              style={{ backgroundColor: m.color || '#888' }} />
+                            <span className="flex-1 truncate">{m.naam}</span>
+                            {m.functie && (
+                              <span className="text-[11px] text-muted">{m.functie}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Field>
               </FieldSection>
 
-              <div className="px-5 py-4">
+              <div className="sticky bottom-0 z-10 bg-surface border-t border-border px-5 py-3">
                 {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
                 <button
                   type="submit" disabled={isSubmitting}
-                  className="btn-primary w-full py-3"
+                  className="btn-primary w-full py-3.5"
                 >
                   {isSubmitting
                     ? <><Loader2 size={14} className="animate-spin" /> Opslaan…</>

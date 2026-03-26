@@ -14,8 +14,8 @@ const LABEL_STYLE: Record<string, { bg: string; color: string }> = {
 }
 
 const TYPE_META: Record<string, { bg: string; color: string; label: string }> = {
-  lead:     { bg: 'rgba(124,58,237,0.08)',  color: '#7C3AED', label: 'Lead'       },
-  customer: { bg: 'rgba(22,163,74,0.08)',   color: '#16A34A', label: 'Klant'      },
+  lead:     { bg: 'rgba(29,78,216,0.08)',   color: '#1D4ED8', label: 'Lead'       },
+  customer: { bg: 'rgba(21,128,61,0.08)',   color: '#15803D', label: 'Klant'      },
   employee: { bg: 'rgba(245,158,11,0.08)',  color: '#D97706', label: 'Medewerker' },
 }
 
@@ -119,7 +119,7 @@ export default function LeadsPage() {
         {stats && (
           <div className="flex gap-2.5 mb-5">
             <StatTile icon="📋" label="Totaal leads"    value={stats.total}         />
-            <StatTile icon="🔥" label="Hoog potentieel" value={stats.highPotential} />
+            <StatTile icon="🔥" label="POTENTIE" value={stats.highPotential} />
             <StatTile icon="⚡" label="Vandaag"          value={stats.today}         />
           </div>
         )}

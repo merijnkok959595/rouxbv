@@ -32,12 +32,16 @@
 
 /* ── Component layer — shared UI patterns ───────────────────────── */
 @layer components {
-  /* Form field */
+  /* Form field — font-size 16px on mobile prevents iOS auto-zoom on focus */
   .field-input {
     @apply w-full px-3 py-2.5 text-sm text-primary bg-surface border border-border rounded-lg
            outline-none transition-shadow duration-150
            focus:ring-2 focus:ring-brand/20 focus:border-brand
            placeholder:text-muted;
+    font-size: 16px;
+  }
+  @media (min-width: 640px) {
+    .field-input { font-size: 14px; }
   }
 
   /* Primary button */
@@ -104,6 +108,51 @@
 .roux-nav-item:hover { color: var(--text); }
 .roux-nav-item.active { color: var(--text); font-weight: 600; }
 .roux-nav-item.active::after { opacity: 1; transform: scaleX(1); }
+
+/* ── react-phone-number-input ─────────────────────────────────────── */
+.PhoneInput {
+  display: flex; align-items: stretch;
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  background: var(--surface); height: 40px;
+}
+.PhoneInput:focus-within {
+  outline: 2px solid rgba(99,102,241,0.25); outline-offset: 0;
+}
+.PhoneInputCountry {
+  position: relative; display: flex; align-items: center; gap: 6px;
+  padding: 0 10px 0 12px; background: var(--active);
+  border-right: 1px solid var(--border); flex-shrink: 0;
+  font-size: 13px; font-weight: 600; color: var(--text);
+  cursor: pointer !important; user-select: none;
+  min-width: 72px;
+}
+.PhoneInputCountry * { cursor: pointer !important; }
+.PhoneInputCountrySelect {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  border: none; background: transparent;
+  -webkit-appearance: none; appearance: none;
+}
+.PhoneInputCountrySelect:focus { outline: none; }
+.PhoneInputCountrySelectArrow {
+  display: inline-block; width: 4px; height: 4px;
+  border-right: 1.5px solid var(--text-muted); border-bottom: 1.5px solid var(--text-muted);
+  border-top: none; border-left: none;
+  transform: rotate(45deg); margin-top: -3px; opacity: 0.5; flex-shrink: 0;
+}
+.PhoneInputCountryIcon {
+  display: flex; align-items: center; line-height: 1; flex-shrink: 0;
+}
+.PhoneInputCountryIcon--square { width: 22px; height: 15px; border-radius: 2px; overflow: hidden; }
+.PhoneInputCountryIcon img, .PhoneInputCountryIcon svg { display: block; width: 100%; height: 100%; }
+.PhoneInputInput {
+  flex: 1; min-width: 0; padding: 0 12px;
+  font-size: 16px; color: var(--text); background: transparent;
+  border: none; outline: none; height: 100%;
+}
+@media (min-width: 640px) {
+  .PhoneInputInput { font-size: 14px; }
+}
+.PhoneInputInput::placeholder { color: var(--text-muted, #aaa); }
 
 /* ── Google Places autocomplete (injected into <body> by Google) ─── */
 .pac-container {

@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
-import { resolveOrgId, adminDb } from '@/lib/auth/resolveOrg'
+import { adminSupabase } from '@/lib/supabase'
 import { appBaseUrl } from '@/lib/app-base-url'
 
+export const runtime = 'nodejs'
+
 export async function POST() {
-  const orgId = await resolveOrgId()
+  const orgId = process.env.ORGANIZATION_ID?.trim() ?? null
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: contacts, error } = await adminDb()
+  const { data: contacts, error } = await adminSupabase()
     .from('contacts')
     .select('id, company_name, city')
     .eq('organization_id', orgId)

@@ -31,9 +31,11 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
 
   async function loadEmployees(nextStep: Step) {
     try {
-      const res  = await fetch('/api/team-members')
-      const data = await res.json() as { members?: Employee[] }
-      setEmployees(data.members ?? [])
+      const res  = await fetch('/api/settings/employees')
+      const data = await res.json()
+      // /api/settings/employees returns an array directly
+      const list: Employee[] = Array.isArray(data) ? data : (data.members ?? [])
+      setEmployees(list)
       setStep(nextStep)
     } catch {
       setEmpError(true)

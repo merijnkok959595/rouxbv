@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter }            from 'next/font/google'
 import NavBar               from '@/components/NavBar'
 import PasswordGate         from '@/components/PasswordGate'
@@ -10,6 +10,11 @@ const inter = Inter({ subsets: ['latin'], display: 'swap' })
 export const metadata: Metadata = {
   title: 'ROUX',
   description: 'Beurs formulier & SUUS AI',
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

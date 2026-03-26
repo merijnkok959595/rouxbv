@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
-import { resolveOrgId, adminDb } from '@/lib/auth/resolveOrg'
+import { adminSupabase } from '@/lib/supabase'
+
+export const runtime = 'nodejs'
+
+const orgId = () => process.env.ORGANIZATION_ID?.trim() ?? null
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const oid = await resolveOrgId()
+  const oid = orgId()
   if (!oid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body   = await req.json()
@@ -18,7 +22,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (body.calendar_id     !== undefined) update.calendar_id      = body.calendar_id     ?? null
   if (body.active          !== undefined) update.active           = body.active
 
-  const { data, error } = await adminDb()
+  const { data, error } = await adminSupabase()
     .from('team_members')
     .update(update)
     .eq('id', params.id)
@@ -31,10 +35,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 export async function DELETE(_: Request, { params }: { params: { id: string } }) {
-  const oid = await resolveOrgId()
+  const oid = orgId()
   if (!oid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { error } = await adminDb()
+  const { error } = await adminSupabase()
     .from('team_members')
     .update({ active: false })
     .eq('id', params.id)

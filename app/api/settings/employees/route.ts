@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server'
-import { resolveOrgId, adminDb } from '@/lib/auth/resolveOrg'
+import { adminSupabase } from '@/lib/supabase'
+
+export const runtime = 'nodejs'
+
+const orgId = () => process.env.ORGANIZATION_ID?.trim() ?? null
 
 export async function GET() {
-  const oid = await resolveOrgId()
+  const oid = orgId()
   if (!oid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data, error } = await adminDb()
+  const { data, error } = await adminSupabase()
     .from('team_members')
     .select('id, naam, email, phone, functie, rayon, ghl_user_id, calendar_id, postcode_ranges, color, active')
     .eq('organization_id', oid)
@@ -17,13 +21,13 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const oid = await resolveOrgId()
+  const oid = orgId()
   if (!oid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
   if (!body.naam?.trim()) return NextResponse.json({ error: 'naam required' }, { status: 400 })
 
-  const { data, error } = await adminDb()
+  const { data, error } = await adminSupabase()
     .from('team_members')
     .insert({
       organization_id: oid,

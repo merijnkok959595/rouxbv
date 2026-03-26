@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     const {
       company, first_name, last_name, email, phone,
       address, city, postcode, country,
-      assigned_to, status, notes, source, channel, opening_hours,
+      assigned_to, status, notes, source, channel, opening_hours, created_by,
     } = body
 
     if (!company) return NextResponse.json({ error: 'company required' }, { status: 400 })
@@ -51,6 +51,7 @@ export async function POST(req: Request) {
         channel:         channel     || 'OFFLINE',
         custom_fields:   notes ? { intake_notes: notes } : null,
         opening_hours:   opening_hours || null,
+        created_by:      created_by || null,
       })
       .select('id, assigned_to')
       .single()

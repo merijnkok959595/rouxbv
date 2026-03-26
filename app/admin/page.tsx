@@ -3,49 +3,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useEmployee }                 from '@/lib/employee-context'
 import { cn }                          from '@/lib/utils'
+import AdminGate                       from '@/components/AdminGate'
 
-const ADMIN_PW  = 'SUPERADMIN'
-const ADMIN_KEY = 'roux_admin_unlocked'
-const MONO      = "'SF Mono', 'Fira Code', monospace"
-
-function AdminGate({ children }: { children: React.ReactNode }) {
-  const [unlocked, setUnlocked] = useState(false)
-  const [input,    setInput]    = useState('')
-  const [error,    setError]    = useState(false)
-  const [ready,    setReady]    = useState(false)
-
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') { setUnlocked(true); setReady(true); return }
-    if (sessionStorage.getItem(ADMIN_KEY) === '1') setUnlocked(true)
-    setReady(true)
-  }, [])
-
-  if (!ready) return null
-  if (unlocked) return <>{children}</>
-
-  function attempt() {
-    if (input === ADMIN_PW) { sessionStorage.setItem(ADMIN_KEY, '1'); setUnlocked(true) }
-    else { setError(true); setInput(''); setTimeout(() => setError(false), 1200) }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-[9999]">
-      <div className="bg-[#111] border border-[#222] rounded-xl px-7 py-8 w-[280px] flex flex-col gap-3.5">
-        <div className="text-[13px] font-bold text-white uppercase tracking-[0.06em]">Admin toegang</div>
-        <input
-          type="password" value={input} autoFocus placeholder="Wachtwoord"
-          onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && attempt()}
-          className="px-3 py-2.5 rounded-lg bg-[#1a1a1a] text-white text-sm outline-none transition-colors"
-          style={{ border: `1px solid ${error ? '#dc2626' : '#333'}` }}
-        />
-        {error && <div className="text-xs text-red-600 -mt-1.5">Ongeldig wachtwoord</div>}
-        <button onClick={attempt} className="py-2.5 rounded-lg border-none bg-white text-black font-bold text-[13px] cursor-pointer hover:opacity-90 transition-opacity">
-          Toegang
-        </button>
-      </div>
-    </div>
-  )
-}
+const MONO = "'SF Mono', 'Fira Code', monospace"
 
 interface TestResult {
   intent: string; example: string; category: string; passed: boolean

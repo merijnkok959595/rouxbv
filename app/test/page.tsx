@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import AdminGate from '@/components/AdminGate'
 
 const MONO = "'SF Mono','Fira Code',monospace"
 
@@ -117,6 +118,7 @@ export default function TestPage() {
   const [suusR,     setSuusR]     = useState<Result>({ status: 'idle' })
 
   return (
+    <AdminGate>
     <div className="max-w-[860px] mx-auto px-5 pt-7 pb-16">
       <h1 className="text-[18px] font-bold text-primary tracking-tight mb-1">API Endpoint Tests</h1>
       <p className="text-xs text-muted mb-7">Test alle endpoints — verifieert rendering, GHL-data en terugschrijven</p>
@@ -272,5 +274,6 @@ export default function TestPage() {
 
       </div>
     </div>
+    </AdminGate>
   )
 }

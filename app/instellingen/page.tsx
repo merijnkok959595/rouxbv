@@ -11,11 +11,6 @@ interface TeamMember {
 }
 const COLOR_PALETTE = ['#6366F1','#8B5CF6','#0EA5E9','#64748B','#F59E0B','#EF4444','#EC4899','#14B8A6','#F97316']
 
-interface RoutingRule {
-  id: string; phase: 'pre' | 'body'
-  condition: 'name_contains' | 'industry_is' | 'postcode_starts'
-  value: string; assign_to_id: string | null; assign_to_naam: string | null; position: number
-}
 interface RoutingConfig {
   organization_id?: string; pre_routing_prompt: string | null
   pre_routing_assign_to_id: string | null; pre_routing_assign_to_naam?: string | null
@@ -87,7 +82,6 @@ function Badge({ text, color }: { text: string; color: string }) {
 export default function InstellingenPage() {
   const [tab,     setTab]     = useState<Tab>('gebruikers')
   const [members, setMembers] = useState<TeamMember[]>([])
-  const [rules,   setRules]   = useState<RoutingRule[]>([])
   const [rCfg,    setRCfg]    = useState<RoutingConfig | null>(null)
   const [qCfg,    setQCfg]    = useState<IntelligenceConfig>({})
   const [loading, setLoading] = useState(true)
@@ -109,9 +103,6 @@ export default function InstellingenPage() {
   const [benchmarks, setBenchmarks] = useState<BenchmarkCustomer[]>([])
   const [bName, setBName] = useState(''); const [bCity, setBCity] = useState('')
   const [bRev, setBRev] = useState(''); const [bLabel, setBLabel] = useState<BenchmarkCustomer['label']>('')
-  const [rPhase, setRPhase] = useState<'pre'|'body'>('body')
-  const [rCond,  setRCond]  = useState<'name_contains'|'industry_is'|'postcode_starts'>('name_contains')
-  const [rVal,   setRVal]   = useState(''); const [rAssign, setRAssign] = useState('')
 
   const flash = (text: string, ok = true) => { setStatus({ text, ok }); setTimeout(() => setStatus(null), 3000) }
 
@@ -124,7 +115,7 @@ export default function InstellingenPage() {
         fetch('/api/intelligence/config').then(r => r.json()),
       ])
       setMembers(Array.isArray(mRes) ? mRes : [])
-      setRules(rcRes.rules ?? []); setRCfg(rcRes.config ?? null); setQCfg(qRes ?? {})
+      setRCfg(rcRes.config ?? null); setQCfg(qRes ?? {})
       if (Array.isArray(qRes?.benchmark_customers) && qRes.benchmark_customers.length > 0)
         setBenchmarks(qRes.benchmark_customers as BenchmarkCustomer[])
     } catch { flash('Laadprobleem', false) }
@@ -183,16 +174,6 @@ export default function InstellingenPage() {
     if (res.ok) { const d = await res.json(); setRCfg(p => ({ ...p!, ...d })); flash('Opgeslagen') } else flash('Fout', false)
   }
 
-  async function addRule() {
-    if (!rVal.trim()) return
-    const res = await fetch('/api/routing/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phase: rPhase, condition: rCond, value: rVal.trim(), assign_to_id: rAssign || null }) })
-    if (res.ok) { setRVal(''); setRAssign(''); flash('Regel toegevoegd'); load() } else flash('Fout', false)
-  }
-
-  async function deleteRule(id: string) {
-    const res = await fetch(`/api/routing/rules/${id}`, { method: 'DELETE' })
-    if (res.ok) load(); else flash('Fout', false)
-  }
 
   async function rerunRouting() {
     setRerunR(true)
@@ -225,7 +206,6 @@ export default function InstellingenPage() {
     saveBenchmarks([...benchmarks, entry]); setBName(''); setBCity(''); setBRev(''); setBLabel('')
   }
 
-  const CONDITION_LABELS: Record<string, string> = { name_contains: 'Naam bevat', industry_is: 'Industrie is', postcode_starts: 'Postcode begint' }
   const FUNCTIE_ABBR: Record<string, string> = { 'Account Manager': 'AM', 'Eigenaar': 'EIG', 'Medewerker': 'MED' }
 
   return (
@@ -499,57 +479,6 @@ export default function InstellingenPage() {
                       )
                     })}
                     {members.length === 0 && <p className="text-xs text-muted">Nog geen medewerkers.</p>}
-                  </div>
-                </Card>
-
-                <Card>
-                  <CardHeader icon={<GitBranch size={14} />} title="Routing regels" />
-                  {rules.length > 0 && (
-                    <table className="w-full border-collapse">
-                      <thead><tr>
-                        <th className={TH}>Fase</th><th className={TH}>Conditie</th><th className={TH}>Waarde</th>
-                        <th className={TH}>Toewijzen aan</th><th className={cn(TH, 'w-11')}></th>
-                      </tr></thead>
-                      <tbody>
-                        {rules.map((r, i) => (
-                          <tr key={r.id}>
-                            <td className={td(i === rules.length - 1)}>
-                              <span className="px-2 py-0.5 rounded text-[11px] font-semibold"
-                                style={{ backgroundColor: r.phase === 'pre' ? 'rgba(99,102,241,0.1)' : 'rgba(16,163,74,0.08)', color: r.phase === 'pre' ? '#6366f1' : '#16a34a', border: `1px solid ${r.phase === 'pre' ? 'rgba(99,102,241,0.2)' : 'rgba(16,163,74,0.15)'}` }}>
-                                {r.phase.toUpperCase()}
-                              </span>
-                            </td>
-                            <td className={td(i === rules.length - 1)}>{CONDITION_LABELS[r.condition] ?? r.condition}</td>
-                            <td className={cn(td(i === rules.length - 1), 'font-semibold')}>{r.value}</td>
-                            <td className={td(i === rules.length - 1)}>{r.assign_to_naam ?? <span className="text-muted">—</span>}</td>
-                            <td className={td(i === rules.length - 1)}>
-                              <button onClick={() => deleteRule(r.id)} className="bg-transparent border-none cursor-pointer text-muted flex hover:text-red-600 transition-colors">
-                                <Trash2 size={14} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                  <div className={cn('px-4 py-3 flex gap-2 flex-wrap items-end', rules.length > 0 && 'border-t border-border')}>
-                    <select value={rPhase} onChange={e => setRPhase(e.target.value as 'pre'|'body')} className={cn(inputCls, 'w-[90px] cursor-pointer')}>
-                      <option value="pre">PRE</option><option value="body">BODY</option>
-                    </select>
-                    <select value={rCond} onChange={e => setRCond(e.target.value as typeof rCond)} className={cn(inputCls, 'w-[190px] cursor-pointer')}>
-                      <option value="name_contains">Naam bevat</option>
-                      <option value="industry_is">Industrie is</option>
-                      <option value="postcode_starts">Postcode begint</option>
-                    </select>
-                    <input placeholder="Waarde *" value={rVal} onChange={e => setRVal(e.target.value)} className={cn(inputCls, 'w-[130px]')} />
-                    <select value={rAssign} onChange={e => setRAssign(e.target.value)} className={cn(inputCls, 'w-[150px] cursor-pointer')}>
-                      <option value="">— toewijzen aan —</option>
-                      {members.map(m => <option key={m.id} value={m.id}>{m.naam}</option>)}
-                    </select>
-                    <button onClick={addRule} disabled={!rVal.trim()}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold bg-primary text-white border-none cursor-pointer disabled:opacity-40 hover:opacity-90 transition-opacity">
-                      <Plus size={12} /> Toevoegen
-                    </button>
                   </div>
                 </Card>
 

@@ -3,17 +3,19 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 
 export type Employee = {
-  id:          string
-  naam:        string
-  functie:     string
-  color:       string
-  ghl_user_id: string
-  calendar_id: string
+  id:           string
+  naam:         string
+  functie:      string | null
+  color:        string | null
+  ghl_user_id:  string | null
+  calendar_id:  string | null
+  phone?:       string | null
+  email?:       string | null
 }
 
 type EmployeeCtx = {
-  employees:      Employee[]
-  activeEmployee: Employee | null
+  employees:         Employee[]
+  activeEmployee:    Employee | null
   setActiveEmployee: (e: Employee) => void
 }
 
@@ -28,10 +30,10 @@ export function EmployeeProvider({ children }: { children: React.ReactNode }) {
   const [activeEmployee, setActiveEmployee] = useState<Employee | null>(null)
 
   useEffect(() => {
-    fetch('/api/team-members')
+    fetch('/api/settings/employees')
       .then(r => r.json())
       .then(d => {
-        const list: Employee[] = d.members ?? []
+        const list: Employee[] = Array.isArray(d) ? d : (d.members ?? [])
         setEmployees(list)
 
         // Restore last selection from localStorage
