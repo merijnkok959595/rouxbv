@@ -3,7 +3,7 @@
  * Fire-and-forget — never throws, so it can't break the calling request.
  */
 
-import { adminDb } from '@/lib/auth/resolveOrg'
+import { adminSupabase } from '@/lib/supabase'
 
 export type ContactEventType = 'create' | 'update' | 'routing' | 'enrichment' | 'scoring'
 
@@ -15,7 +15,7 @@ export async function logContactEvent(opts: {
   metadata?:      Record<string, unknown>
 }): Promise<void> {
   try {
-    await adminDb().from('contact_events').insert({
+    await adminSupabase().from('contact_events').insert({
       organization_id: opts.organizationId,
       contact_id:      opts.contactId ?? null,
       event_type:      opts.eventType,

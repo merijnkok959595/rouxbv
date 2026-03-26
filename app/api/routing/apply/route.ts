@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { resolveOrgId, adminDb } from '@/lib/auth/resolveOrg'
+import { resolveOrgId } from '@/lib/auth/resolveOrg'
+import { adminSupabase } from '@/lib/supabase'
 import { logContactEvent } from '@/lib/events/logContactEvent'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -45,7 +46,7 @@ interface ConfigRow {
 }
 
 async function loadRoutingData(orgId: string) {
-  const db = adminDb()
+  const db = adminSupabase()
 
   const [cfgRes, rulesRes, empsRes] = await Promise.all([
     db.from('routing_config').select('*, team_members!pre_routing_assign_to_id(naam), fallback_tm:team_members!fallback_user_id(naam)')
@@ -131,14 +132,14 @@ async function runPreRoutingAI(prompt: string, contact: ContactInput, useWebSear
 
 export async function POST(req: Request) {
   const body  = await req.json()
-  const orgId = body.organization_id ?? await resolveOrgId()
+  const orgId = body.organization_id ?? resolveOrgId()
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let contact: ContactInput
   let contactId: string | null = body.contact_id ?? null
 
   if (contactId) {
-    const { data: row } = await adminDb()
+    const { data: row } = await adminSupabase()
       .from('contacts')
       .select('id, company_name, first_name, last_name, email, phone, city, postcode, website, industry')
       .eq('id', contactId)
@@ -237,7 +238,7 @@ export async function POST(req: Request) {
 
   // Write assigned_to back to the contact
   if (contactId && assignedTo !== null) {
-    await adminDb()
+    await adminSupabase()
       .from('contacts')
       .update({ assigned_to: assignedTo })
       .eq('id', contactId)

@@ -72,7 +72,7 @@ export default function LeadsPage() {
   async function load() {
     setLoading(true); setError(null)
     fetch('/api/leads/stats').then(r => r.json()).then(d => { if (d.total != null) setStats(d) }).catch(() => {})
-    fetch('/api/settings/employees').then(r => r.json()).then(d => { if (Array.isArray(d.members)) setMembers(d.members) }).catch(() => {})
+    fetch('/api/settings/employees').then(r => r.json()).then(d => { const list = Array.isArray(d) ? d : (d.members ?? []); setMembers(list) }).catch(() => {})
     try {
       const res  = await fetch('/api/leads')
       const data = await res.json()

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { resolveOrgId, adminDb } from '@/lib/auth/resolveOrg'
+import { resolveOrgId } from '@/lib/auth/resolveOrg'
+import { adminSupabase } from '@/lib/supabase'
 
 const COLOR_PALETTE = [
   '#6366F1', '#8B5CF6', '#0EA5E9', '#64748B',
@@ -41,10 +42,10 @@ const CSV_USERS = [
 ]
 
 export async function POST() {
-  const oid = await resolveOrgId()
+  const oid = resolveOrgId()
   if (!oid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = adminDb()
+  const db = adminSupabase()
 
   const rows = CSV_USERS.map((u, i) => ({
     organization_id: oid,

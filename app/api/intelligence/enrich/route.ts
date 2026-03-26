@@ -245,7 +245,7 @@ export async function POST(req: Request) {
   const body = await req.json()
   const { contact_id, organization_id: bodyOrgId } = body
 
-  const orgId = bodyOrgId ?? await resolveOrgId()
+  const orgId = bodyOrgId ?? resolveOrgId()
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!contact_id) return NextResponse.json({ error: 'contact_id required' }, { status: 400 })
 

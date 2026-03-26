@@ -36,7 +36,7 @@
   .field-input {
     @apply w-full px-3 py-2.5 text-sm text-primary bg-surface border border-border rounded-lg
            outline-none transition-shadow duration-150
-           focus:ring-2 focus:ring-brand/20 focus:border-brand
+           focus:ring-2 focus:ring-black/10 focus:border-primary/40
            placeholder:text-muted;
     font-size: 16px;
   }
@@ -116,7 +116,8 @@
   background: var(--surface); height: 40px;
 }
 .PhoneInput:focus-within {
-  outline: 2px solid rgba(99,102,241,0.25); outline-offset: 0;
+  outline: 2px solid rgba(0,0,0,0.12); outline-offset: 0;
+  border-color: rgba(0,0,0,0.35);
 }
 .PhoneInputCountry {
   position: relative; display: flex; align-items: center; gap: 6px;

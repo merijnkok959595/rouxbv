@@ -27,7 +27,12 @@ export async function POST(req: Request) {
       company, first_name, last_name, email, phone,
       address, city, postcode, country,
       assigned_to, status, notes, source, channel, opening_hours, created_by,
-    } = body
+    } = body as {
+      company: string; first_name?: string; last_name?: string; email?: string; phone?: string
+      address?: string; city?: string; postcode?: string; country?: string
+      assigned_to?: string; status?: string; notes?: string; source?: string; channel?: string
+      opening_hours?: unknown; created_by?: string
+    }
 
     if (!company) return NextResponse.json({ error: 'company required' }, { status: 400 })
 
@@ -49,9 +54,8 @@ export async function POST(req: Request) {
         type:            status      || 'lead',
         source:          source      || null,
         channel:         channel     || 'OFFLINE',
-        custom_fields:   notes ? { intake_notes: notes } : null,
+        custom_fields:   (notes || created_by) ? { ...(notes ? { intake_notes: notes } : {}), ...(created_by ? { created_by } : {}) } : null,
         opening_hours:   opening_hours || null,
-        created_by:      created_by || null,
       })
       .select('id, assigned_to')
       .single()

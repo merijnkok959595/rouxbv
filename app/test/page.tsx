@@ -138,10 +138,10 @@ export default function TestPage() {
         </Card>
 
         <Card>
-          <CardHead><Badge method="GET" /><span className="text-[11px] text-muted flex-1" style={{ fontFamily: MONO }}>/api/team-members</span><span className="text-[13px] font-bold text-primary">Teamleden</span></CardHead>
+          <CardHead><Badge method="GET" /><span className="text-[11px] text-muted flex-1" style={{ fontFamily: MONO }}>/api/settings/employees</span><span className="text-[13px] font-bold text-primary">Teamleden</span></CardHead>
           <CardBody>
-            <p className="text-xs text-muted">Haalt actieve teamleden op inclusief GHL user ID.</p>
-            <button className={btnCls} disabled={members.status === 'running'} onClick={() => run(() => fetch('/api/team-members'), setMembers)}>{members.status === 'running' ? '…' : 'Test'}</button>
+            <p className="text-xs text-muted">Haalt actieve teamleden op inclusief GHL user ID en kleur.</p>
+            <button className={btnCls} disabled={members.status === 'running'} onClick={() => run(() => fetch('/api/settings/employees'), setMembers)}>{members.status === 'running' ? '…' : 'Test'}</button>
             <ResultPanel r={members} />
           </CardBody>
         </Card>
