@@ -23,7 +23,7 @@
   }
 
   html, body {
-    @apply h-full font-sans bg-bg text-primary antialiased;
+    @apply h-full font-sans bg-bg text-primary antialiased overflow-x-hidden;
   }
 
   input, textarea, select, button {

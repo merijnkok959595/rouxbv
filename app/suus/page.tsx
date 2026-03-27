@@ -454,7 +454,7 @@ export default function SuusPage() {
 
   /* ── Render ───────────────────────────────────────────────────── */
   return (
-    <div className="flex flex-col bg-bg" style={{ height: 'calc(100dvh - var(--nav-height, 80px))' }}>
+    <div className="flex flex-col bg-bg overflow-x-hidden" style={{ height: 'calc(100dvh - var(--nav-height, 80px))' }}>
 
 
       {/* ── Contact form modal ───────────────────────────────────── */}
@@ -486,8 +486,8 @@ export default function SuusPage() {
       )}
 
       {/* ── Message feed ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
-        <div className="max-w-[720px] mx-auto px-4 sm:px-6 pt-14 pb-4 flex flex-col relative">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
+        <div className="max-w-[720px] mx-auto w-full px-4 sm:px-6 pt-14 pb-4 flex flex-col relative">
 
           {/* Bellen button — top-right, belt het SUUS Twilio nummer */}
           <div className="absolute top-4 right-4 sm:right-6 z-10">

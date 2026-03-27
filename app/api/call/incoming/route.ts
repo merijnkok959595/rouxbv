@@ -89,7 +89,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 // ── WebSocket monitor (background — handles tool calls) ────────────────────
 
 function startCallMonitor(callId: string, instructions: string) {
-  const ws = new WebSocket(`wss://api.openai.com/v1/realtime?call_id=${callId}`, {
+  const ws = new WebSocket(`wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview&call_id=${callId}`, {
     headers: { Authorization: `Bearer ${API_KEY()}` },
   })
 
