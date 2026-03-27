@@ -60,7 +60,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model:        'gpt-4o-mini-realtime-preview',
-        voice:        'alloy',
+        voice:        'shimmer',
         instructions,
         tools:        VOICE_TOOLS_FULL,
         temperature:  0.6,
@@ -69,6 +69,7 @@ export async function POST(req: Request) {
           threshold:           0.5,
           prefix_padding_ms:   300,
           silence_duration_ms: 900,
+          eagerness:           'high',
         },
         input_audio_transcription: { model: 'gpt-4o-transcribe', language: 'nl' },
       }),
