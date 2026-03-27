@@ -155,19 +155,35 @@ export const ghlTools = {
           : Promise.resolve(emptyGHL),
       ])
 
-      // Dedupliceer GHL resultaten
-      const seen = new Set<string>()
-      const combined: GHLContact[] = []
-      for (const list of [simpleRes.contacts, advancedRes.contacts, cityRes.contacts, companyRes.contacts]) {
-        for (const c of list ?? []) {
-          const id = c.id ?? (c as { contactId?: string }).contactId ?? ''
-          if (id && !seen.has(id)) { seen.add(id); combined.push(c) }
+      // Dedupliceer helper
+      const dedup = (lists: (GHLContact[] | undefined)[]): GHLContact[] => {
+        const seen = new Set<string>()
+        const out: GHLContact[] = []
+        for (const list of lists) {
+          for (const c of list ?? []) {
+            const id = c.id ?? (c as { contactId?: string }).contactId ?? ''
+            if (id && !seen.has(id)) { seen.add(id); out.push(c) }
+          }
         }
+        return out
       }
 
-      // ── GHL found results → return directly, skip Google ──────────────────
-      if (combined.length > 0) {
-        return formatContacts(combined)
+      // ── When city is known: prioritise city-scoped results ─────────────────
+      // Only fall back to non-city results if city search gives 0 hits,
+      // to avoid flooding results from other cities (e.g. "Louis in Oss" when
+      // user asked for "Cocktail Louie in Amsterdam").
+      if (cityFilter) {
+        const cityScoped = dedup([simpleRes.contacts, cityRes.contacts, companyRes.contacts])
+        if (cityScoped.length > 0) return formatContacts(cityScoped)
+        // City search found nothing — retry without city but with full phrase only
+        const phraseOnly = dedup([simpleRes.contacts, companyRes.contacts])
+        if (phraseOnly.length > 0) return formatContacts(phraseOnly)
+        // Last resort: include non-city advancedRes
+        const all = dedup([advancedRes.contacts])
+        if (all.length > 0) return formatContacts(all)
+      } else {
+        const combined = dedup([simpleRes.contacts, advancedRes.contacts, companyRes.contacts])
+        if (combined.length > 0) return formatContacts(combined)
       }
 
       // ── Step 2: GHL returned 0 → try Google for spelling correction ───────
