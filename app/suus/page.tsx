@@ -72,6 +72,7 @@ export default function SuusPage() {
   const [pendingImage,    setPendingImage]    = useState<{ url: string; base64: string } | null>(null)
   const [modalForm,       setModalForm]       = useState<{ data: ContactFormPrefilled; msgIdx: number } | null>(null)
   const [dictating,       setDictating]       = useState(false)
+  const [callError,       setCallError]       = useState<string | null>(null)
   const [transcribingVoice, setTranscribingVoice] = useState(false)
   const dictRecorderRef  = useRef<MediaRecorder | null>(null)
   const dictChunksRef    = useRef<Blob[]>([])
@@ -452,7 +453,13 @@ export default function SuusPage() {
       if (!callingRef.current) { pc.close(); return }
       if (!sdpRes.ok) throw new Error(`SDP exchange failed: ${sdpRes.status}`)
       await pc.setRemoteDescription({ type: 'answer', sdp: await sdpRes.text() })
-    } catch (err) { console.error('[voice]', err); if (callingRef.current) stopCall() }
+    } catch (err) {
+      console.error('[voice]', err)
+      const msg = err instanceof Error ? err.message : String(err)
+      setCallError(msg)
+      setTimeout(() => setCallError(null), 8000)
+      if (callingRef.current) stopCall()
+    }
   }
 
   function toggleMute() {
@@ -786,6 +793,25 @@ export default function SuusPage() {
                   </button>
                 )}
               </div>
+            </div>
+          )}
+
+          {callError && (
+            <div className="flex items-start gap-2 mx-1 mb-2 px-3 py-2 rounded-[10px] bg-red-50 border border-red-200 text-red-700 text-[12px] leading-snug animate-fade-up">
+              <span className="mt-[1px] shrink-0">⚠️</span>
+              <span className="flex-1">
+                <span className="font-semibold">Verbindingsfout — </span>
+                {callError.includes('No client secret') || callError.includes('500')
+                  ? 'SUUS kon geen sessie starten. Probeer opnieuw of meld dit aan de beheerder.'
+                  : callError.includes('SDP')
+                  ? 'Audio-verbinding mislukt. Controleer je microfoon en probeer opnieuw.'
+                  : callError.includes('getUserMedia') || callError.includes('NotAllowed')
+                  ? 'Microfoon toegang geweigerd. Geef toestemming in je browserinstellingen.'
+                  : 'Er ging iets mis bij het verbinden. Probeer opnieuw.'}
+              </span>
+              <button onClick={() => setCallError(null)} className="shrink-0 text-red-400 hover:text-red-600 mt-[1px]">
+                <X size={13} strokeWidth={2.5} />
+              </button>
             </div>
           )}
 
