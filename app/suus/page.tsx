@@ -298,6 +298,14 @@ export default function SuusPage() {
   async function executeTool(item: { call_id: string; name: string; arguments: string }) {
     try {
       const args = JSON.parse(item.arguments || '{}')
+
+      // Handle hang_up locally — no server call needed
+      if (item.name === 'hang_up') {
+        sendRealtimeEvent({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: item.call_id, output: JSON.stringify({ ok: true }) } })
+        setTimeout(() => stopCall(), 1200) // small delay so AI can finish farewell
+        return
+      }
+
       const res = await fetch('/api/suus/tool-call', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: item.name, args, session_id: sessionId }),

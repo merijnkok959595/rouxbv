@@ -83,6 +83,9 @@ async function executeTool(name: string, args: Record<string, unknown>, sessionI
     return { ok: true, message: 'Contact cleared from session' }
   }
 
+  // ── hang_up: signal caller to close WebSocket ─────────────────────────────
+  if (name === 'hang_up') return { ok: true, action: 'hang_up' }
+
   // ── Regular tools ──────────────────────────────────────────────────────────
   const tool = (suusTools as unknown as ToolMap)[name]
   if (!tool?.execute) return { error: `Unknown tool: ${name}` }
@@ -133,6 +136,14 @@ function startCallMonitor(callId: string) {
         type: 'conversation.item.create',
         item: { type: 'function_call_output', call_id: toolCallId, output: JSON.stringify(result) },
       }))
+
+      if (name === 'hang_up') {
+        // Let AI say farewell, then close
+        ws.send(JSON.stringify({ type: 'response.create' }))
+        setTimeout(() => ws.close(), 2000)
+        return
+      }
+
       ws.send(JSON.stringify({ type: 'response.create' }))
     } catch (err) {
       console.error('[sip] ws message error', err)

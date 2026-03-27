@@ -103,7 +103,7 @@ Duplicate waarschuwing van contact_create (duplicate_warning=true):
 Na alle acties: "Is er nog iets anders?"
   - Zelfde contact → direct doorgaan
   - Ander contact  → opnieuw zoeken (session_clear_contact optioneel)
-  - Klaar → "Oké, succes! Tot de volgende keer."
+  - Klaar → zeg "Oké, succes! Tot de volgende keer." → roep hang_up aan
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ## GEEN CONTACT NODIG
@@ -151,6 +151,12 @@ export const VOICE_TOOLS_FULL = [
   {
     type: 'function', name: 'session_clear_contact',
     description: 'Verwijder het geselecteerde contact uit de sessie. Gebruik dit als de gebruiker een ander contact wil behandelen.',
+    parameters: { type: 'object', properties: {} },
+  },
+  // ── Call control ──────────────────────────────────────────────────────────
+  {
+    type: 'function', name: 'hang_up',
+    description: 'Verbreek het gesprek. Gebruik dit nadat je de afsluitende zin hebt gezegd ("Oké, succes! Tot de volgende keer."). Roep dit ALTIJD aan als het gesprek klaar is.',
     parameters: { type: 'object', properties: {} },
   },
   // ── Contact tools ─────────────────────────────────────────────────────────
