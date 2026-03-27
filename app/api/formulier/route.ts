@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { adminSupabase } from '@/lib/supabase'
 import { appBaseUrl } from '@/lib/app-base-url'
+import { contactCreate, contactUpdate, contactSearchAdvanced, buildCustomFields, CF } from '@/lib/ghl-client'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -61,6 +62,57 @@ export async function POST(req: Request) {
       .single()
 
     if (error) throw new Error(error.message)
+
+    // ── Sync to GHL (fire-and-forget, non-blocking) ──────────────────────────
+    void (async () => {
+      try {
+        const ghlData = {
+          firstName:    first_name  || undefined,
+          lastName:     last_name   || undefined,
+          email:        email       || undefined,
+          phone:        phone       || undefined,
+          companyName:  company,
+          address1:     address     || undefined,
+          postalCode:   postcode    || undefined,
+          city:         city        || undefined,
+          country:      country?.trim() || 'NL',
+          customFields: buildCustomFields({ klantType: status === 'klant' ? 'Klant' : 'Lead' }),
+        }
+
+        // Check for duplicate by company name (+ phone/email if available)
+        const existing = await contactSearchAdvanced({ searchTerms: [company], ...(city ? { cityFilter: city } : {}) })
+        const duplicate = existing?.contacts?.find(c =>
+          c.companyName?.toLowerCase().trim() === company.toLowerCase().trim() ||
+          (email && c.email === email) ||
+          (phone && c.phone?.replace(/\D/g, '') === phone.replace(/\D/g, ''))
+        )
+
+        let ghlId: string | null = null
+        if (duplicate?.id) {
+          // Update existing GHL contact
+          await contactUpdate(duplicate.id, ghlData)
+          ghlId = duplicate.id
+          console.log(`[formulier] GHL updated existing contact ${ghlId} (${company})`)
+        } else {
+          // Create new GHL contact
+          const created = await contactCreate(ghlData)
+          ghlId = created?.contact?.id ?? null
+          console.log(`[formulier] GHL created contact ${ghlId} (${company})`)
+        }
+
+        if (ghlId) {
+          await adminSupabase()
+            .from('contacts')
+            .update({
+              ghl_synced:    true,
+              custom_fields: { intake_notes: notes || null, created_by: created_by || null, ghl_contact_id: ghlId },
+            })
+            .eq('id', contact.id)
+        }
+      } catch (ghlErr) {
+        console.error('[formulier] GHL sync failed (non-fatal):', ghlErr)
+      }
+    })()
 
     // Fire-and-forget: route + enrich every new contact automatically
     const base    = appBaseUrl()
