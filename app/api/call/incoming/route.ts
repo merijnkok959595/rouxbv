@@ -30,9 +30,11 @@ function verifySignature(body: string, headers: Headers): boolean {
   const msgTimestamp = headers.get('webhook-timestamp') ?? ''
   const msgSig       = headers.get('webhook-signature') ?? ''
 
-  const toSign  = `${msgId}.${msgTimestamp}.${body}`
-  const hmac    = createHmac('sha256', secret).update(toSign).digest('base64')
-  const computed = `v1,${hmac}`
+  // Svix secrets are base64-encoded after the "whsec_" prefix
+  const secretBytes = Buffer.from(secret.replace(/^whsec_/, ''), 'base64')
+  const toSign      = `${msgId}.${msgTimestamp}.${body}`
+  const hmac        = createHmac('sha256', secretBytes).update(toSign).digest('base64')
+  const computed    = `v1,${hmac}`
 
   return msgSig.split(' ').some(s => s === computed)
 }
@@ -163,7 +165,6 @@ async function acceptCall(callId: string) {
       voice:        'alloy',
       instructions,
       tools:        VOICE_TOOLS,
-      turn_detection: { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 600 },
     }),
   })
 
