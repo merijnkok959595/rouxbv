@@ -299,7 +299,7 @@ export default function SuusPage() {
       const args = JSON.parse(item.arguments || '{}')
       const res = await fetch('/api/suus/tool-call', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: item.name, args }),
+        body: JSON.stringify({ name: item.name, args, session_id: sessionId }),
       })
       const { result } = await res.json()
       sendRealtimeEvent({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: item.call_id, output: JSON.stringify(result) } })
@@ -434,6 +434,8 @@ export default function SuusPage() {
       dc.onopen = () => {
         setCallStatus('active')
         dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', input_audio_transcription: { model: 'whisper-1' } } }))
+        // Trigger opening greeting immediately
+        dc.send(JSON.stringify({ type: 'response.create', response: { instructions: 'Zeg nu je openingsgroet.' } }))
       }
       dc.onclose = () => { if (callingRef.current) stopCall() }; dc.onmessage = handleRealtimeEvent
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer)

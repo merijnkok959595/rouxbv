@@ -11,6 +11,14 @@ import { NextResponse } from 'next/server'
 import { createHmac }   from 'crypto'
 import { adminSupabase } from '@/lib/supabase'
 import { suusTools }     from '@/lib/suus-tools'
+import { SUUS_VOICE_SYSTEM, VOICE_TOOLS_FULL } from '@/lib/suus-voice-prompt'
+import {
+  initSession,
+  getSession,
+  setSelectedContact,
+  clearSelectedContact,
+  type SelectedContact,
+} from '@/lib/voice-session'
 import WebSocket         from 'ws'
 
 export const runtime     = 'nodejs'
@@ -39,48 +47,43 @@ function verifySignature(body: string, headers: Headers): boolean {
   return msgSig.split(' ').some(s => s === computed)
 }
 
-// ── System prompt (same as /api/call/route.ts) ──────────────────────────────
-
-const VOICE_SYSTEM = `Je bent SUUS, de AI voice-assistent van ROUX BV.
-Je helpt sales reps met CRM-beheer via spraak. Antwoord altijd kort en bondig — dit is een gesprek.
-
-## Kernregels
-1. Nooit een ID raden — altijd ophalen via tool
-2. Gebruik contact_zoek vóór elke contactactie (tenzij contactId al bekend)
-3. Bij 1 resultaat: direct doorgaan. Bij meerdere: noem de opties kort en vraag welke.
-4. Bij 0 resultaten: vraag voornaam + "Lead of Klant" → contact_intake → contact_create
-5. Bevestig uitgevoerde acties in één korte zin. Spreek Nederlands.
-
-## Acties
-- Nieuw contact:   contact_zoek → 0 resultaten → contact_intake → contact_create
-- Bezoek:          contact_zoek → calendar_create (vandaag) + note_create
-- Notitie:         contact_zoek → note_create
-- Taak:            contact_zoek → task_create
-- Taak collega:    get_team_members → contact_zoek → task_create
-- Briefing:        contact_zoek → contact_briefing
-- Intern overleg:  calendar_block`
-
-const VOICE_TOOLS = [
-  { type: 'function', name: 'contact_zoek',     description: 'Zoek een contact in GHL.',                    parameters: { type: 'object', properties: { rawQuery: { type: 'string' } }, required: ['rawQuery'] } },
-  { type: 'function', name: 'contact_briefing', description: 'Volledige briefing van een contact.',          parameters: { type: 'object', properties: { contactId: { type: 'string' } }, required: ['contactId'] } },
-  { type: 'function', name: 'contact_intake',   description: 'Eerste stap nieuw contact: naam + klantType.', parameters: { type: 'object', properties: { companyName: { type: 'string' }, firstName: { type: 'string' }, klantType: { type: 'string' } }, required: ['companyName'] } },
-  { type: 'function', name: 'contact_create',   description: 'Maak nieuw GHL contact aan.',                  parameters: { type: 'object', properties: { firstName: { type: 'string' }, companyName: { type: 'string' }, klantType: { type: 'string', enum: ['Lead', 'Klant'] }, lastName: { type: 'string' }, email: { type: 'string' }, phone: { type: 'string' }, city: { type: 'string' } }, required: ['firstName', 'companyName', 'klantType'] } },
-  { type: 'function', name: 'contact_update',   description: 'Wijzig velden van bestaand contact.',          parameters: { type: 'object', properties: { contactId: { type: 'string' }, firstName: { type: 'string' }, companyName: { type: 'string' }, phone: { type: 'string' }, city: { type: 'string' }, groothandel: { type: 'string' }, klantType: { type: 'string' }, kortingsafspraken: { type: 'string' }, posMateriaal: { type: 'string' } }, required: ['contactId'] } },
-  { type: 'function', name: 'note_create',      description: 'Voeg note toe aan GHL contact.',               parameters: { type: 'object', properties: { contactId: { type: 'string' }, body: { type: 'string' }, userId: { type: 'string' } }, required: ['contactId', 'body'] } },
-  { type: 'function', name: 'task_create',      description: 'Maak taak aan voor GHL contact.',              parameters: { type: 'object', properties: { contactId: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, dueDate: { type: 'string' }, assignedTo: { type: 'string' } }, required: ['contactId', 'title', 'dueDate'] } },
-  { type: 'function', name: 'get_team_members', description: 'Haal teamleden op.',                           parameters: { type: 'object', properties: {} } },
-  { type: 'function', name: 'get_stats',        description: 'CRM statistieken.',                            parameters: { type: 'object', properties: {} } },
-  { type: 'function', name: 'calendar_create',  description: 'Maak afspraak aan.',                           parameters: { type: 'object', properties: { contactId: { type: 'string' }, calendarId: { type: 'string' }, title: { type: 'string' }, startTime: { type: 'string' }, endTime: { type: 'string' }, notes: { type: 'string' } }, required: ['contactId', 'calendarId', 'title', 'startTime', 'endTime'] } },
-  { type: 'function', name: 'calendar_block',   description: 'Blokkeer agenda slot.',                        parameters: { type: 'object', properties: { calendarId: { type: 'string' }, title: { type: 'string' }, startTime: { type: 'string' }, endTime: { type: 'string' }, secondCalendarId: { type: 'string' } }, required: ['calendarId', 'title', 'startTime', 'endTime'] } },
-]
 
 // ── Tool executor ───────────────────────────────────────────────────────────
 
 type ToolMap = Record<string, { execute?: (args: Record<string, unknown>, opts: { toolCallId: string; messages: unknown[]; abortSignal: AbortSignal }) => Promise<unknown> }>
 const BLOCKED = new Set(['render_form', 'render_edit_form'])
 
-async function executeTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+async function executeTool(name: string, args: Record<string, unknown>, sessionId: string): Promise<unknown> {
   if (BLOCKED.has(name)) return { error: 'Tool not available in voice context' }
+
+  // ── Session tools ──────────────────────────────────────────────────────────
+  if (name === 'session_get') {
+    const session = getSession(sessionId) ?? initSession(sessionId)
+    return {
+      selectedContact: session.selectedContact ?? null,
+      userNaam:        session.userNaam    ?? null,
+      userId:          session.userId      ?? null,
+      calendarId:      session.calendarId  ?? null,
+      phase:           session.phase,
+    }
+  }
+  if (name === 'session_set_contact') {
+    initSession(sessionId)
+    const contact: SelectedContact = {
+      id:      String(args.id      ?? ''),
+      name:    String(args.name    ?? ''),
+      company: String(args.company ?? ''),
+      type:    args.type ? String(args.type) : undefined,
+    }
+    setSelectedContact(sessionId, contact)
+    return { ok: true, selectedContact: contact }
+  }
+  if (name === 'session_clear_contact') {
+    clearSelectedContact(sessionId)
+    return { ok: true, message: 'Contact cleared from session' }
+  }
+
+  // ── Regular tools ──────────────────────────────────────────────────────────
   const tool = (suusTools as unknown as ToolMap)[name]
   if (!tool?.execute) return { error: `Unknown tool: ${name}` }
   return tool.execute(args, { toolCallId: '', messages: [], abortSignal: new AbortController().signal })
@@ -96,7 +99,11 @@ function startCallMonitor(callId: string) {
 
   ws.on('open', () => {
     console.log(`[sip] WebSocket open for call ${callId}`)
-    ws.send(JSON.stringify({ type: 'response.create' }))
+    // Trigger the AI to say its opening greeting immediately
+    ws.send(JSON.stringify({
+      type: 'response.create',
+      response: { instructions: 'Zeg nu je openingsgroet.' },
+    }))
   })
 
   ws.on('message', async (raw) => {
@@ -109,7 +116,7 @@ function startCallMonitor(callId: string) {
       const args = JSON.parse(argsStr || '{}') as Record<string, unknown>
 
       console.log(`[sip] tool call: ${name}`, args)
-      const result = await executeTool(name, args)
+      const result = await executeTool(name, args, callId)
 
       ws.send(JSON.stringify({
         type: 'conversation.item.create',
@@ -145,8 +152,15 @@ async function acceptCall(callId: string): Promise<void> {
   const user  = await resolveUser(orgId)
   const now   = new Date().toLocaleString('nl-NL', { timeZone: 'Europe/Amsterdam' })
 
+  // Init session keyed by call_id so tool calls can use it
+  initSession(callId, {
+    userId:      user?.ghl_user_id ?? undefined,
+    calendarId:  user?.calendar_id ?? undefined,
+    userNaam:    user?.naam        ?? undefined,
+  })
+
   const instructions = [
-    VOICE_SYSTEM, '',
+    SUUS_VOICE_SYSTEM, '',
     '## Sessiecontext',
     `Datum/tijd: ${now}`,
     `GHL locatie ID: ${process.env.GHL_LOCATION_ID ?? ''}`,
@@ -165,7 +179,7 @@ async function acceptCall(callId: string): Promise<void> {
       type:         'realtime',
       model:        'gpt-4o-realtime-preview',
       instructions,
-      tools:        VOICE_TOOLS,
+      tools:        VOICE_TOOLS_FULL,
       audio:        { output: { voice: 'alloy' } },
     }),
   })
