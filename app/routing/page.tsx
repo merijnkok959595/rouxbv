@@ -110,7 +110,7 @@ export default function RoutingPage() {
     setSaving(true)
     try {
       const res = await fetch('/api/routing/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
-      if (res.ok) { setConfig(prev => ({ ...prev!, ...await res.json() })); flash('Opgeslagen') }
+      if (res.ok) { const updated = await res.json(); setConfig(prev => ({ ...prev!, ...updated })); flash('Opgeslagen') }
       else flash('Fout', false)
     } finally { setSaving(false) }
   }
