@@ -191,7 +191,7 @@ async function acceptCall(callId: string): Promise<void> {
       model:        'gpt-4o-realtime-preview',
       instructions,
       tools:        VOICE_TOOLS_FULL,
-      temperature:  0,
+      temperature:  0.6,
       audio:        { output: { voice: 'alloy' } },
       input_audio_transcription: { model: 'gpt-4o-transcribe', language: 'nl' },
     }),

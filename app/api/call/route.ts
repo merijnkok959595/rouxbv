@@ -63,7 +63,7 @@ export async function POST(req: Request) {
         voice:        'alloy',
         instructions,
         tools:        VOICE_TOOLS_FULL,
-        temperature:  0,
+        temperature:  0.6,
         turn_detection: {
           type:                'server_vad',
           threshold:           0.5,
