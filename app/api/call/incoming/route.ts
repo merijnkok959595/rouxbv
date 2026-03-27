@@ -88,13 +88,25 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 
 // ── WebSocket monitor (background — handles tool calls) ────────────────────
 
-function startCallMonitor(callId: string) {
+function startCallMonitor(callId: string, instructions: string) {
   const ws = new WebSocket(`wss://api.openai.com/v1/realtime?call_id=${callId}`, {
     headers: { Authorization: `Bearer ${API_KEY()}` },
   })
 
   ws.on('open', () => {
     console.log(`[sip] WebSocket open for call ${callId}`)
+    // Configure session here — accept endpoint only takes { type }
+    ws.send(JSON.stringify({
+      type: 'session.update',
+      session: {
+        model:        'gpt-4o-realtime-preview',
+        voice:        'alloy',
+        instructions,
+        tools:        VOICE_TOOLS,
+        turn_detection: { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 600 },
+        input_audio_transcription: { model: 'gpt-4o-transcribe' },
+      },
+    }))
     ws.send(JSON.stringify({ type: 'response.create' }))
   })
 
@@ -139,7 +151,7 @@ async function resolveUser(orgId: string) {
   } catch { return undefined }
 }
 
-async function acceptCall(callId: string) {
+async function acceptCall(callId: string): Promise<string> {
   const orgId = ORG_ID()
   const user  = await resolveUser(orgId)
   const now   = new Date().toLocaleString('nl-NL', { timeZone: 'Europe/Amsterdam' })
@@ -156,22 +168,19 @@ async function acceptCall(callId: string) {
     ] : []),
   ].join('\n')
 
+  // Accept endpoint only accepts { type } — all session config goes via WS session.update
   const res = await fetch(`https://api.openai.com/v1/realtime/calls/${callId}/accept`, {
     method:  'POST',
     headers: { Authorization: `Bearer ${API_KEY()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      type:         'realtime',
-      model:        'gpt-4o-realtime-preview',
-      voice:        'alloy',
-      instructions,
-      tools:        VOICE_TOOLS,
-    }),
+    body: JSON.stringify({ type: 'realtime' }),
   })
 
   if (!res.ok) {
     const err = await res.text()
     throw new Error(`accept failed: ${res.status} ${err}`)
   }
+
+  return instructions
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -196,11 +205,11 @@ export async function POST(req: Request) {
 
     console.log(`[sip] incoming call ${callId}`)
 
-    await acceptCall(callId)
+    const instructions = await acceptCall(callId)
     console.log(`[sip] call ${callId} accepted`)
 
-    // Start WebSocket monitor in background (handles tool calls)
-    startCallMonitor(callId)
+    // Start WebSocket monitor in background (configures session + handles tool calls)
+    startCallMonitor(callId, instructions)
 
     return NextResponse.json({ ok: true })
   } catch (err) {

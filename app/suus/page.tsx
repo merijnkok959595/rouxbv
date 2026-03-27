@@ -454,7 +454,7 @@ export default function SuusPage() {
 
   /* ── Render ───────────────────────────────────────────────────── */
   return (
-    <div className="flex flex-col bg-bg" style={{ height: 'calc(100dvh - 80px)' }}>
+    <div className="flex flex-col bg-bg" style={{ height: 'calc(100dvh - var(--nav-height, 80px))' }}>
 
 
       {/* ── Contact form modal ───────────────────────────────────── */}
@@ -487,10 +487,10 @@ export default function SuusPage() {
 
       {/* ── Message feed ─────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
-        <div className="max-w-[720px] mx-auto px-4 pt-14 pb-4 flex flex-col max-sm:px-3 relative">
+        <div className="max-w-[720px] mx-auto px-4 sm:px-6 pt-14 pb-4 flex flex-col relative">
 
           {/* Bellen button — top-right, belt het SUUS Twilio nummer */}
-          <div className="absolute top-4 right-4 max-sm:right-3 z-10">
+          <div className="absolute top-4 right-4 sm:right-6 z-10">
             <a
               href="tel:+3197010275858"
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-[12px] font-medium rounded-full hover:opacity-85 transition-opacity"
@@ -509,7 +509,7 @@ export default function SuusPage() {
                 </h2>
                 <p className="text-[13px] text-muted">Stel een vraag, stuur een foto of start een gesprek</p>
               </div>
-              <div className="grid grid-cols-2 gap-2 w-full max-w-[420px] max-sm:grid-cols-1">
+              <div className="grid grid-cols-2 gap-2 w-full max-w-[420px]">
                 {SUGGESTIONS.map(s => (
                   <button
                     key={s}
@@ -630,7 +630,7 @@ export default function SuusPage() {
 
 
       {/* ── Input bar ────────────────────────────────────────────── */}
-      <div className="px-4 pb-[max(16px,env(safe-area-inset-bottom))] flex-shrink-0 max-sm:px-3">
+      <div className="px-4 pb-[max(16px,env(safe-area-inset-bottom))] flex-shrink-0">
         <div className="max-w-[760px] mx-auto">
 
           {dictating || transcribingVoice ? (
