@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { adminSupabase } from '@/lib/supabase'
 import { appBaseUrl } from '@/lib/app-base-url'
-import { contactCreate, contactUpdate, contactSearchAdvanced, buildCustomFields, CF } from '@/lib/ghl-client'
+import { contactCreate, contactUpdate, contactSearchAdvanced, buildCustomFields, noteCreate } from '@/lib/ghl-client'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
