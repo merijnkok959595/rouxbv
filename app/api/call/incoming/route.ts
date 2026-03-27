@@ -188,7 +188,7 @@ async function acceptCall(callId: string): Promise<void> {
     headers: { Authorization: `Bearer ${API_KEY()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       type:         'realtime',
-      model:        'gpt-4o-realtime-preview',
+      model:        'gpt-4o-mini-realtime-preview',
       instructions,
       tools:        VOICE_TOOLS_FULL,
       temperature:  0.6,

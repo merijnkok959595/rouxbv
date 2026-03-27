@@ -59,7 +59,7 @@ export async function POST(req: Request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model:        'gpt-4o-realtime-preview',
+        model:        'gpt-4o-mini-realtime-preview',
         voice:        'alloy',
         instructions,
         tools:        VOICE_TOOLS_FULL,

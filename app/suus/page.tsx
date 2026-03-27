@@ -449,7 +449,7 @@ export default function SuusPage() {
       dc.onclose = () => { if (callingRef.current) stopCall() }; dc.onmessage = handleRealtimeEvent
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
       if (!callingRef.current) { pc.close(); return }
-      const sdpRes = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview', { method: 'POST', headers: { Authorization: `Bearer ${data.client_secret.value}`, 'Content-Type': 'application/sdp' }, body: offer.sdp })
+      const sdpRes = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview', { method: 'POST', headers: { Authorization: `Bearer ${data.client_secret.value}`, 'Content-Type': 'application/sdp' }, body: offer.sdp })
       if (!callingRef.current) { pc.close(); return }
       if (!sdpRes.ok) throw new Error(`SDP exchange failed: ${sdpRes.status}`)
       await pc.setRemoteDescription({ type: 'answer', sdp: await sdpRes.text() })
