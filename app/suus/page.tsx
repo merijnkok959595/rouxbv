@@ -434,8 +434,10 @@ export default function SuusPage() {
       dc.onopen = () => {
         setCallStatus('active')
         dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', input_audio_transcription: { model: 'whisper-1' } } }))
-        // Trigger opening greeting immediately
-        dc.send(JSON.stringify({ type: 'response.create', response: { instructions: 'Zeg nu je openingsgroet.' } }))
+        // Delay slightly so audio channel is fully ready before greeting starts
+        setTimeout(() => {
+          dc.send(JSON.stringify({ type: 'response.create', response: { instructions: 'Zeg nu je openingsgroet.' } }))
+        }, 800)
       }
       dc.onclose = () => { if (callingRef.current) stopCall() }; dc.onmessage = handleRealtimeEvent
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer)

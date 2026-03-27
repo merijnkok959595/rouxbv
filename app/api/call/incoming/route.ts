@@ -99,11 +99,13 @@ function startCallMonitor(callId: string) {
 
   ws.on('open', () => {
     console.log(`[sip] WebSocket open for call ${callId}`)
-    // Trigger the AI to say its opening greeting immediately
-    ws.send(JSON.stringify({
-      type: 'response.create',
-      response: { instructions: 'Zeg nu je openingsgroet.' },
-    }))
+    // Delay slightly so audio channel is fully ready before greeting starts
+    setTimeout(() => {
+      ws.send(JSON.stringify({
+        type: 'response.create',
+        response: { instructions: 'Zeg nu je openingsgroet.' },
+      }))
+    }, 800)
   })
 
   ws.on('message', async (raw) => {
