@@ -99,18 +99,27 @@ function startCallMonitor(callId: string) {
 
   ws.on('open', () => {
     console.log(`[sip] WebSocket open for call ${callId}`)
-    // Delay slightly so audio channel is fully ready before greeting starts
-    setTimeout(() => {
-      ws.send(JSON.stringify({
-        type: 'response.create',
-        response: { instructions: 'Zeg nu je openingsgroet.' },
-      }))
-    }, 800)
   })
+
+  let greetingScheduled = false
 
   ws.on('message', async (raw) => {
     try {
       const ev = JSON.parse(raw.toString()) as { type: string; item?: { type: string; call_id: string; name: string; arguments: string } }
+
+      // Wait for session.created — confirms audio is ready — then greet after 1s
+      if (ev.type === 'session.created' && !greetingScheduled) {
+        greetingScheduled = true
+        console.log(`[sip] session ready, scheduling greeting for ${callId}`)
+        setTimeout(() => {
+          ws.send(JSON.stringify({
+            type: 'response.create',
+            response: { instructions: 'Zeg nu je openingsgroet.' },
+          }))
+        }, 1000)
+        return
+      }
+
       if (ev.type !== 'response.output_item.done') return
       if (ev.item?.type !== 'function_call') return
 
