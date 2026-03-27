@@ -84,7 +84,34 @@ export default function SuusPage() {
   const callAnalyserRef  = useRef<AnalyserNode | null>(null)
   const callAudioCtxRef  = useRef<AudioContext | null>(null)
   const callAnimFrameRef = useRef<number>(0)
-  const realtimeStreamingRef = useRef(false)
+  const realtimeStreamingRef  = useRef(false)
+  const inactivityTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inactivityWarnedRef   = useRef(false)
+
+  const INACTIVITY_WARN_MS = 90_000  // 90s → ask if still there
+  const INACTIVITY_HANG_MS = 30_000  // 30s after warning → hang up
+
+  function resetInactivityTimer() {
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+    inactivityWarnedRef.current = false
+    inactivityTimerRef.current = setTimeout(() => {
+      // Ask if still there
+      inactivityWarnedRef.current = true
+      dcRef.current?.send(JSON.stringify({
+        type: 'response.create',
+        response: { instructions: 'Vraag kort of de gebruiker er nog is. Zeg: "Ben je er nog?" Wacht op antwoord. Als er geen reactie komt binnen 30 seconden, zeg dan gedag en roep hang_up aan.' },
+      }))
+      // Hard fallback: hang up after 30s regardless
+      inactivityTimerRef.current = setTimeout(() => {
+        if (callingRef.current) stopCall()
+      }, INACTIVITY_HANG_MS)
+    }, INACTIVITY_WARN_MS)
+  }
+
+  function clearInactivityTimer() {
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+    inactivityTimerRef.current = null
+  }
 
   const { activeEmployee } = useEmployee()
   const imageInputRef    = useRef<HTMLInputElement>(null)
@@ -325,10 +352,10 @@ export default function SuusPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ev = JSON.parse(e.data as string) as any
       switch (ev.type) {
-        case 'input_audio_buffer.speech_started': setUserTalking(true);  break
+        case 'input_audio_buffer.speech_started': setUserTalking(true);  resetInactivityTimer(); break
         case 'input_audio_buffer.speech_stopped': setUserTalking(false); break
         case 'response.audio.delta':              setAgentTalking(true);  break
-        case 'response.audio.done':               setAgentTalking(false); break
+        case 'response.audio.done':               setAgentTalking(false); resetInactivityTimer(); break
 
         case 'response.audio_transcript.delta': {
           const delta = (ev.delta as string) ?? ''
@@ -417,6 +444,7 @@ export default function SuusPage() {
       audioElRef.current = null
     }
     stopCallVisualizer()
+    clearInactivityTimer()
     realtimeStreamingRef.current = false
     setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false); setMuted(false)
   }
@@ -443,6 +471,7 @@ export default function SuusPage() {
       dc.onopen = () => {
         setCallStatus('active')
         dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', input_audio_transcription: { model: 'whisper-1', language: 'nl' } } }))
+        resetInactivityTimer()
       }
       // Wait for full peer connection before greeting — avoids audio cutoff
       let greetingScheduled = false
