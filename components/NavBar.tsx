@@ -8,6 +8,7 @@ import { useEmployee } from '@/lib/employee-context'
 import { cn }          from '@/lib/utils'
 
 const NAV = [
+  { href: '/suus',         label: 'SUUS'         },
   { href: '/formulier',    label: 'Formulier'    },
   { href: '/leads',        label: 'Leads'        },
   { href: '/awards',       label: 'Awards'       },
@@ -124,7 +125,7 @@ export default function NavBar() {
 
           {/* Drawer top bar */}
           <div className="flex items-center justify-between px-5 h-[56px] border-b border-border flex-shrink-0">
-            <Link href="/suus" onClick={() => setMenuOpen(false)} className="text-[15px] font-black text-primary tracking-[-0.02em]">SUUS</Link>
+            <span className="text-[15px] font-black text-primary tracking-[-0.02em]">MENU</span>
             <button
               onClick={() => setMenuOpen(false)}
               className="w-9 h-9 flex items-center justify-center rounded-lg text-primary hover:bg-active transition-colors"
