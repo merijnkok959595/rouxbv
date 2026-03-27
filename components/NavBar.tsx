@@ -14,7 +14,6 @@ const NAV = [
   { href: '/awards',       label: 'Awards'       },
   { href: '/instellingen', label: 'Instellingen' },
   { href: '/admin',        label: 'Admin'        },
-  { href: '/test',         label: 'Test'         },
 ]
 
 export default function NavBar() {

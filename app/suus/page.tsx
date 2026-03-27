@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowUp, PhoneOff, Mic, MicOff, X, ImageIcon, Plus, AudioLines, Check, Phone } from 'lucide-react'
+import { ArrowUp, Mic, X, ImageIcon, Plus, AudioLines, Check, Phone } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn }              from '@/lib/utils'
@@ -67,7 +67,6 @@ export default function SuusPage() {
   const [callStatus,   setCallStatus]   = useState<'idle' | 'connecting' | 'active'>('idle')
   const [agentTalking, setAgentTalking] = useState(false)
   const [userTalking,  setUserTalking]  = useState(false)
-  const [muted,        setMuted]        = useState(false)
   const [attachOpen,      setAttachOpen]      = useState(false)
   const [pendingImage,    setPendingImage]    = useState<{ url: string; base64: string } | null>(null)
   const [modalForm,       setModalForm]       = useState<{ data: ContactFormPrefilled; msgIdx: number } | null>(null)
@@ -80,11 +79,7 @@ export default function SuusPage() {
   const dictAudioCtxRef  = useRef<AudioContext | null>(null)
   const dictAnimFrameRef = useRef<number>(0)
   const dictBarsRef      = useRef<(HTMLDivElement | null)[]>([])
-  const callBarsRef      = useRef<(HTMLDivElement | null)[]>([])
-  const callAnalyserRef  = useRef<AnalyserNode | null>(null)
-  const callAudioCtxRef  = useRef<AudioContext | null>(null)
-  const callAnimFrameRef = useRef<number>(0)
-  const realtimeStreamingRef  = useRef(false)
+  const ttsAudioRef      = useRef<HTMLAudioElement | null>(null)
   const inactivityTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inactivityWarnedRef   = useRef(false)
 
@@ -94,14 +89,12 @@ export default function SuusPage() {
   function resetInactivityTimer() {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
     inactivityWarnedRef.current = false
-    inactivityTimerRef.current = setTimeout(() => {
-      // Ask if still there
+    inactivityTimerRef.current = setTimeout(async () => {
+      if (!callingRef.current) return
       inactivityWarnedRef.current = true
-      dcRef.current?.send(JSON.stringify({
-        type: 'response.create',
-        response: { instructions: 'Vraag kort of de gebruiker er nog is. Zeg: "Ben je er nog?" Wacht op antwoord. Als er geen reactie komt binnen 30 seconden, zeg dan gedag en roep hang_up aan.' },
-      }))
-      // Hard fallback: hang up after 30s regardless
+      const msg = 'Ben je er nog?'
+      setMsgs(p => [...p, { role: 'ai', text: msg }])
+      await playTTS(msg)
       inactivityTimerRef.current = setTimeout(() => {
         if (callingRef.current) stopCall()
       }, INACTIVITY_HANG_MS)
@@ -115,10 +108,6 @@ export default function SuusPage() {
 
   const { activeEmployee } = useEmployee()
   const imageInputRef    = useRef<HTMLInputElement>(null)
-  const pcRef            = useRef<RTCPeerConnection | null>(null)
-  const dcRef            = useRef<RTCDataChannel | null>(null)
-  const localStreamRef   = useRef<MediaStream | null>(null)
-  const audioElRef       = useRef<HTMLAudioElement | null>(null)
   const bottomRef        = useRef<HTMLDivElement>(null)
   const textareaRef      = useRef<HTMLTextAreaElement>(null)
   const attachRef        = useRef<HTMLDivElement>(null)
@@ -200,11 +189,26 @@ export default function SuusPage() {
           const res  = await fetch('/api/suus/transcribe', { method: 'POST', body: fd })
           const data = await res.json() as { text?: string }
           if (data.text) {
-            setInput(prev => prev ? `${prev} ${data.text}` : data.text!)
-            setTimeout(resizeTextarea, 0)
-            textareaRef.current?.focus()
+            if (callingRef.current) {
+              // Voice mode: auto-send transcript
+              setTranscribingVoice(false)
+              setDictating(false)
+              await voiceLoop(data.text)
+            } else {
+              // Text mode: insert into input field
+              setInput(prev => prev ? `${prev} ${data.text}` : data.text!)
+              setTimeout(resizeTextarea, 0)
+              textareaRef.current?.focus()
+            }
+          } else if (callingRef.current) {
+            // No speech detected in voice mode — restart recording
+            setTranscribingVoice(false)
+            setDictating(false)
+            startDictate()
           }
-        } catch { /* ignore */ } finally { setTranscribingVoice(false) }
+        } catch { /* ignore */ } finally {
+          if (!callingRef.current) setTranscribingVoice(false)
+        }
       }
       mr.start()
       dictRecorderRef.current = mr
@@ -317,187 +321,122 @@ export default function SuusPage() {
     }
   }, [sessionId, activeEmployee])
 
-  /* ── Realtime / WebRTC ────────────────────────────────────────── */
-  function sendRealtimeEvent(event: unknown) {
-    if (dcRef.current?.readyState === 'open') dcRef.current.send(JSON.stringify(event))
-  }
+  /* ── Voice pipeline (STT → /api/suus → TTS) ──────────────────── */
 
-  async function executeTool(item: { call_id: string; name: string; arguments: string }) {
+  async function playTTS(text: string): Promise<void> {
+    if (!text.trim()) return
     try {
-      const args = JSON.parse(item.arguments || '{}')
-
-      // Handle hang_up locally — no server call needed
-      if (item.name === 'hang_up') {
-        sendRealtimeEvent({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: item.call_id, output: JSON.stringify({ ok: true }) } })
-        setTimeout(() => stopCall(), 1200) // small delay so AI can finish farewell
-        return
-      }
-
-      const res = await fetch('/api/suus/tool-call', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: item.name, args, session_id: sessionId }),
+      const res = await fetch('/api/voice/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text.slice(0, 500) }),
       })
-      const { result } = await res.json()
-      sendRealtimeEvent({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: item.call_id, output: JSON.stringify(result) } })
-      sendRealtimeEvent({ type: 'response.create' })
-    } catch (err) {
-      console.error('[voice/tool]', err)
-      sendRealtimeEvent({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: item.call_id, output: JSON.stringify({ error: String(err) }) } })
-      sendRealtimeEvent({ type: 'response.create' })
-    }
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      return new Promise<void>(resolve => {
+        const audio = new Audio(url)
+        ttsAudioRef.current = audio
+        setAgentTalking(true)
+        audio.onended = () => {
+          setAgentTalking(false)
+          URL.revokeObjectURL(url)
+          ttsAudioRef.current = null
+          resolve()
+        }
+        audio.onerror = () => {
+          setAgentTalking(false)
+          URL.revokeObjectURL(url)
+          ttsAudioRef.current = null
+          resolve()
+        }
+        audio.play().catch(() => { setAgentTalking(false); resolve() })
+      })
+    } catch { /* TTS fail is non-fatal — text is shown in chat */ }
   }
 
-  function handleRealtimeEvent(e: MessageEvent) {
+  async function voiceLoop(transcript: string) {
+    if (!callingRef.current) return
+    setUserTalking(false)
+
+    setMsgs(p => [...p, { role: 'user', text: transcript }])
+    setMsgs(p => [...p, { role: 'ai', text: '', streaming: true }])
+
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ev = JSON.parse(e.data as string) as any
-      switch (ev.type) {
-        case 'input_audio_buffer.speech_started': setUserTalking(true);  resetInactivityTimer(); break
-        case 'input_audio_buffer.speech_stopped': setUserTalking(false); break
-        case 'response.audio.delta':              setAgentTalking(true);  break
-        case 'response.audio.done':               setAgentTalking(false); resetInactivityTimer(); break
+      const res = await fetch('/api/suus', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: transcript, session_id: sessionId, employee_id: activeEmployee?.id }),
+      })
+      if (!res.ok || !res.body) throw new Error('suus fetch failed')
 
-        case 'response.audio_transcript.delta': {
-          const delta = (ev.delta as string) ?? ''
-          if (!realtimeStreamingRef.current) {
-            realtimeStreamingRef.current = true
-            setMsgs(p => [...p, { role: 'ai', text: delta, streaming: true }])
-          } else {
-            setMsgs(p => {
-              const next = [...p]
-              const idx = next.findLastIndex(m => m.role === 'ai')
-              if (idx >= 0) next[idx] = { ...next[idx], text: next[idx].text + delta }
-              return next
-            })
-          }
-          bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-          break
-        }
-
-        case 'response.audio_transcript.done':
-          realtimeStreamingRef.current = false
-          setMsgs(p => {
-            const next = [...p]
-            const idx = next.findLastIndex(m => m.role === 'ai')
-            if (idx >= 0) next[idx] = { ...next[idx], streaming: false }
-            return next
-          })
-          break
-
-        case 'conversation.item.input_audio_transcription.completed': {
-          const transcript = (ev.transcript as string)?.trim()
-          if (transcript) {
-            setMsgs(p => [...p, { role: 'user', text: transcript }])
-            bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-          }
-          break
-        }
-
-        case 'response.output_item.done':
-          if (ev.item?.type === 'function_call') executeTool(ev.item as { call_id: string; name: string; arguments: string })
-          break
-        case 'error': console.error('[voice/realtime]', ev); break
+      const reader  = res.body.getReader()
+      const decoder = new TextDecoder()
+      let full = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        full += decoder.decode(value, { stream: true })
+        setMsgs(p => p.map((m, i) => i === p.length - 1 ? { ...m, text: full } : m))
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
       }
-    } catch { /* ignore */ }
-  }
+      setMsgs(p => p.map((m, i) => i === p.length - 1 ? { ...m, streaming: false } : m))
 
-  function startCallVisualizer(stream: MediaStream) {
-    const audioCtx = new AudioContext()
-    callAudioCtxRef.current = audioCtx
-    const source = audioCtx.createMediaStreamSource(stream)
-    const analyser = audioCtx.createAnalyser()
-    analyser.fftSize = 32
-    analyser.smoothingTimeConstant = 0.8
-    source.connect(analyser)
-    callAnalyserRef.current = analyser
-    const dataArray = new Uint8Array(analyser.frequencyBinCount)
-    function draw() {
-      if (!callAnalyserRef.current) return
-      callAnalyserRef.current.getByteFrequencyData(dataArray)
-      const bars = callBarsRef.current
-      for (let i = 0; i < bars.length; i++) {
-        const bar = bars[i]; if (!bar) continue
-        const binIndex = Math.min(Math.floor((i / bars.length) * (dataArray.length / 2)), dataArray.length - 1)
-        const value = dataArray[binIndex] / 255
-        bar.style.height = `${3 + value * 13}px`
-      }
-      callAnimFrameRef.current = requestAnimationFrame(draw)
+      if (!callingRef.current) return
+
+      // Strip __FORM__/__BRIEFING__/__CONTACTS__ markers for TTS
+      const speakText = full.replace(/\n__(?:FORM|BRIEFING|CONTACTS)__:[\s\S]+/, '').trim()
+      if (speakText) await playTTS(speakText)
+
+      if (!callingRef.current) return
+      resetInactivityTimer()
+      // Auto-start next recording turn
+      startDictate()
+
+    } catch (err) {
+      console.error('[voice/loop]', err)
+      setMsgs(p => p.map((m, i) => i === p.length - 1
+        ? { ...m, text: 'Er ging iets mis. Probeer opnieuw.', streaming: false } : m))
+      if (callingRef.current) setTimeout(startDictate, 1000)
     }
-    draw()
-  }
-
-  function stopCallVisualizer() {
-    cancelAnimationFrame(callAnimFrameRef.current)
-    callAnalyserRef.current = null
-    callAudioCtxRef.current?.close()
-    callAudioCtxRef.current = null
   }
 
   function stopCall() {
     callingRef.current = false
-    dcRef.current?.close(); dcRef.current = null
-    pcRef.current?.close(); pcRef.current = null
-    localStreamRef.current?.getTracks().forEach(t => t.stop()); localStreamRef.current = null
-    if (audioElRef.current) {
-      audioElRef.current.pause()
-      audioElRef.current.srcObject = null
-      audioElRef.current = null
+    // Stop TTS
+    if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null }
+    // Stop recording
+    if (dictRecorderRef.current) {
+      dictRecorderRef.current.ondataavailable = null
+      dictRecorderRef.current.onstop = null
+      dictRecorderRef.current.stop()
+      dictRecorderRef.current = null
     }
-    stopCallVisualizer()
+    stopDictVisualizer()
     clearInactivityTimer()
-    realtimeStreamingRef.current = false
-    // Restore audio session so music can resume
     if ('audioSession' in navigator) {
       try { (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'auto' } catch { /* unsupported */ }
     }
-    setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false); setMuted(false)
+    setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false)
+    setDictating(false); setTranscribingVoice(false)
   }
 
   async function toggleCall() {
     if (callingRef.current) { stopCall(); return }
     callingRef.current = true
-    // Tell OS this is a voice call → pauses background music on iOS/Android
     if ('audioSession' in navigator) {
       try { (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'play-and-record' } catch { /* unsupported */ }
     }
-    setCalling(true); setCallStatus('connecting')
+    setCalling(true); setCallStatus('connecting'); setCallError(null)
     try {
-      const res  = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, employee_id: activeEmployee?.id }) })
+      setCallStatus('active')
+      const voornaam = activeEmployee?.naam?.split(' ')[0] ?? 'daar'
+      const greeting = `Hoi ${voornaam}, hoe kan ik je helpen?`
+      setMsgs(p => [...p, { role: 'ai', text: greeting }])
+      await playTTS(greeting)
       if (!callingRef.current) return
-      const data = await res.json() as { client_secret?: { value: string }; error?: string }
-      if (!data.client_secret?.value) throw new Error(data.error ?? 'No client secret')
-      if (!callingRef.current) return
-      const pc = new RTCPeerConnection(); pcRef.current = pc
-      pc.oniceconnectionstatechange = () => { if (callingRef.current && (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected')) stopCall() }
-      const audioEl = new Audio(); audioEl.autoplay = true; audioElRef.current = audioEl
-      pc.ontrack = e => { audioEl.srcObject = e.streams[0] }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (!callingRef.current) { stream.getTracks().forEach(t => t.stop()); pc.close(); return }
-      localStreamRef.current = stream; stream.getTracks().forEach(t => pc.addTrack(t, stream))
-      startCallVisualizer(stream)
-      const dc = pc.createDataChannel('oai-events'); dcRef.current = dc
-      dc.onopen = () => {
-        setCallStatus('active')
-        dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', input_audio_transcription: { model: 'whisper-1', language: 'nl' } } }))
-        resetInactivityTimer()
-      }
-      // Wait for full peer connection before greeting — avoids audio cutoff
-      let greetingScheduled = false
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'connected' && !greetingScheduled) {
-          greetingScheduled = true
-          setTimeout(() => {
-            dcRef.current?.send(JSON.stringify({ type: 'response.create', response: { instructions: 'Zeg nu je openingsgroet.' } }))
-          }, 1000)
-        }
-      }
-      dc.onclose = () => { if (callingRef.current) stopCall() }; dc.onmessage = handleRealtimeEvent
-      const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
-      if (!callingRef.current) { pc.close(); return }
-      const sdpRes = await fetch('https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview', { method: 'POST', headers: { Authorization: `Bearer ${data.client_secret.value}`, 'Content-Type': 'application/sdp' }, body: offer.sdp })
-      if (!callingRef.current) { pc.close(); return }
-      if (!sdpRes.ok) throw new Error(`SDP exchange failed: ${sdpRes.status}`)
-      await pc.setRemoteDescription({ type: 'answer', sdp: await sdpRes.text() })
+      resetInactivityTimer()
+      startDictate()
     } catch (err) {
       console.error('[voice]', err)
       const msg = err instanceof Error ? err.message : String(err)
@@ -505,11 +444,6 @@ export default function SuusPage() {
       setTimeout(() => setCallError(null), 8000)
       if (callingRef.current) stopCall()
     }
-  }
-
-  function toggleMute() {
-    const stream = localStreamRef.current; if (!stream) return
-    const next = !muted; stream.getTracks().forEach(t => { t.enabled = !next }); setMuted(next)
   }
 
   const hasContent = !!(input.trim() || pendingImage)
@@ -778,7 +712,7 @@ export default function SuusPage() {
 
               {/* Right icons */}
               <div className="flex items-center gap-2 flex-shrink-0">
-                {/* Dictate button — hidden during call (mute btn takes over) */}
+                {/* Dictate button — hidden during voice mode */}
                 {!calling && (
                   <button
                     onClick={startDictate}
@@ -789,37 +723,17 @@ export default function SuusPage() {
                   </button>
                 )}
 
-                {/* Send / call button */}
+                {/* Send / voice call button */}
                 {calling ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <VoiceOrb
-                      state={toOrbState(agentTalking ? 'talking' : userTalking ? 'listening' : null, callStatus)}
+                      state={toOrbState(agentTalking ? 'talking' : dictating ? 'listening' : null, callStatus)}
                       size={28}
                     />
                     <button
-                      onClick={toggleMute}
-                      title={muted ? 'Unmute' : 'Mute'}
-                      className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center transition-colors flex-shrink-0',
-                        muted ? 'bg-red-100 text-red-500' : 'bg-black/6 text-secondary hover:text-primary',
-                      )}
-                    >
-                      {muted ? <MicOff size={14} strokeWidth={2} /> : <Mic size={14} strokeWidth={2} />}
-                    </button>
-                    <button
                       onClick={toggleCall}
-                      className="inline-flex items-center gap-2 pl-3 pr-4 h-9 bg-[#007AFF] text-white rounded-full hover:opacity-90 transition-opacity flex-shrink-0"
+                      className="inline-flex items-center gap-1.5 pl-3 pr-4 h-9 bg-[#007AFF] text-white rounded-full hover:opacity-90 transition-opacity flex-shrink-0"
                     >
-                      <div className="flex items-center gap-[2.5px]">
-                        {[0, 1, 2].map(i => (
-                          <div
-                            key={i}
-                            ref={el => { callBarsRef.current[i] = el }}
-                            className="w-[3px] rounded-full bg-white transition-[height] duration-75"
-                            style={{ height: '3px' }}
-                          />
-                        ))}
-                      </div>
                       <span className="text-[13px] font-semibold">
                         {callStatus === 'connecting' ? 'Verbinden…' : 'Ophangen'}
                       </span>
@@ -828,7 +742,7 @@ export default function SuusPage() {
                 ) : (
                   <button
                     onClick={() => { if (hasContent) sendMessage(input, pendingImage?.base64); else toggleCall() }}
-                    title={hasContent ? 'Versturen (Enter)' : 'Bellen met SUUS'}
+                    title={hasContent ? 'Versturen (Enter)' : 'Spraakgesprek starten'}
                     className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center hover:opacity-85 transition-opacity"
                   >
                     {hasContent
@@ -845,14 +759,10 @@ export default function SuusPage() {
             <div className="flex items-start gap-2 mx-1 mb-2 px-3 py-2 rounded-[10px] bg-red-50 border border-red-200 text-red-700 text-[12px] leading-snug animate-fade-up">
               <span className="mt-[1px] shrink-0">⚠️</span>
               <span className="flex-1">
-                <span className="font-semibold">Verbindingsfout — </span>
-                {callError.includes('No client secret') || callError.includes('500')
-                  ? 'SUUS kon geen sessie starten. Probeer opnieuw of meld dit aan de beheerder.'
-                  : callError.includes('SDP')
-                  ? 'Audio-verbinding mislukt. Controleer je microfoon en probeer opnieuw.'
-                  : callError.includes('getUserMedia') || callError.includes('NotAllowed')
+                <span className="font-semibold">Fout — </span>
+                {callError.includes('getUserMedia') || callError.includes('NotAllowed')
                   ? 'Microfoon toegang geweigerd. Geef toestemming in je browserinstellingen.'
-                  : 'Er ging iets mis bij het verbinden. Probeer opnieuw.'}
+                  : 'Er ging iets mis. Probeer opnieuw of meld dit aan de beheerder.'}
               </span>
               <button onClick={() => setCallError(null)} className="shrink-0 text-red-400 hover:text-red-600 mt-[1px]">
                 <X size={13} strokeWidth={2.5} />
