@@ -324,6 +324,7 @@ export async function googleZoekAdres(query: string) {
 
     // Pick best match using cheap LLM if multiple results
     let bestIdx = 0
+    let matchReason: string | null = null
     if (candidates.length > 1) {
       try {
         const openaiKey = process.env.OPENAI_API_KEY?.trim()
@@ -335,16 +336,24 @@ export async function googleZoekAdres(query: string) {
             body: JSON.stringify({
               model: 'gpt-4o-mini',
               temperature: 0,
-              max_tokens: 5,
+              max_tokens: 60,
               messages: [
-                { role: 'system', content: 'Return ONLY the index number (0-4) of the best matching result for the user query. Nothing else.' },
+                {
+                  role: 'system',
+                  content: 'Return ONLY valid JSON: {"index": <0-4>, "reason": "<one short Dutch sentence why this is the best match>"}. Nothing else.',
+                },
                 { role: 'user', content: `Query: "${query}"\n\nCandidates:\n${list}` },
               ],
             }),
           })
           const llmData = await llmRes.json() as { choices?: { message?: { content?: string } }[] }
-          const idx = parseInt(llmData.choices?.[0]?.message?.content?.trim() ?? '0', 10)
-          if (!isNaN(idx) && idx >= 0 && idx < candidates.length) bestIdx = idx
+          const raw = llmData.choices?.[0]?.message?.content?.trim() ?? ''
+          const parsed = JSON.parse(raw) as { index?: number; reason?: string }
+          const idx = parsed.index ?? 0
+          if (!isNaN(idx) && idx >= 0 && idx < candidates.length) {
+            bestIdx = idx
+            matchReason = parsed.reason ?? null
+          }
         }
       } catch { /* fallback to index 0 */ }
     }
@@ -376,9 +385,10 @@ export async function googleZoekAdres(query: string) {
       postalCode: postcode,
       city,
       country,
-      phone:     detail.formatted_phone_number ?? null,
-      website:   detail.website ?? null,
+      phone:        detail.formatted_phone_number ?? null,
+      website:      detail.website ?? null,
       openingHours: hours,
+      match_reason: matchReason,
     }
   } catch (err) {
     return { found: false, error: String(err) }
