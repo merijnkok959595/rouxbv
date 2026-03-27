@@ -66,6 +66,34 @@ export async function POST(req: Request) {
     // ── Sync to GHL (fire-and-forget, non-blocking) ──────────────────────────
     void (async () => {
       try {
+        // Look up GHL user ID for assigned employee (by name match in team_members)
+        let assignedToGhlId: string | undefined
+        if (assigned_to) {
+          const { data: member } = await adminSupabase()
+            .from('team_members')
+            .select('ghl_user_id')
+            .eq('organization_id', orgId)
+            .or(`naam.eq.${assigned_to},id.eq.${assigned_to}`)
+            .maybeSingle()
+          assignedToGhlId = (member as { ghl_user_id?: string } | null)?.ghl_user_id ?? undefined
+        }
+
+        // Look up GHL user ID for creator (for note attribution)
+        let createdByGhlId: string | undefined
+        if (created_by) {
+          const { data: creator } = await adminSupabase()
+            .from('team_members')
+            .select('ghl_user_id')
+            .eq('organization_id', orgId)
+            .or(`naam.eq.${created_by},id.eq.${created_by}`)
+            .maybeSingle()
+          createdByGhlId = (creator as { ghl_user_id?: string } | null)?.ghl_user_id ?? undefined
+        }
+
+        const klantType   = status === 'klant' ? 'Klant' : 'Lead'
+        // source = "NHBEURS 2026", channel = "OFFLINE" / "BEURS"
+        const klantSource = source || undefined
+
         const ghlData = {
           firstName:    first_name  || undefined,
           lastName:     last_name   || undefined,
@@ -76,11 +104,20 @@ export async function POST(req: Request) {
           postalCode:   postcode    || undefined,
           city:         city        || undefined,
           country:      country?.trim() || 'NL',
-          customFields: buildCustomFields({ klantType: status === 'klant' ? 'Klant' : 'Lead' }),
+          source:       klantSource,          // standard GHL source field
+          assignedTo:   assignedToGhlId,      // GHL user ID
+          customFields: buildCustomFields({
+            klantType,
+            klantSource,                      // "NHBEURS 2026" in custom field
+            openingstijden: typeof opening_hours === 'string' ? opening_hours : undefined,
+          }),
         }
 
-        // Check for duplicate by company name (+ phone/email if available)
-        const existing = await contactSearchAdvanced({ searchTerms: [company], ...(city ? { cityFilter: city } : {}) })
+        // Check for duplicate by company name + optional email/phone
+        const existing = await contactSearchAdvanced({
+          searchTerms: [company],
+          ...(city ? { cityFilter: city } : {}),
+        })
         const duplicate = existing?.contacts?.find(c =>
           c.companyName?.toLowerCase().trim() === company.toLowerCase().trim() ||
           (email && c.email === email) ||
@@ -89,15 +126,28 @@ export async function POST(req: Request) {
 
         let ghlId: string | null = null
         if (duplicate?.id) {
-          // Update existing GHL contact
           await contactUpdate(duplicate.id, ghlData)
           ghlId = duplicate.id
-          console.log(`[formulier] GHL updated existing contact ${ghlId} (${company})`)
+          console.log(`[formulier] GHL updated contact ${ghlId} (${company})`)
         } else {
-          // Create new GHL contact
           const created = await contactCreate(ghlData)
           ghlId = created?.contact?.id ?? null
           console.log(`[formulier] GHL created contact ${ghlId} (${company})`)
+        }
+
+        // Create intake note in GHL if notes were provided
+        if (ghlId && notes?.trim()) {
+          const noteUserId = createdByGhlId || assignedToGhlId || ''
+          const noteBody = [
+            `📋 Intake notitie — ${source || 'Formulier'}`,
+            '',
+            notes.trim(),
+            '',
+            `Aangemaakt door: ${created_by || '—'}`,
+            `Toegewezen aan: ${assigned_to || '—'}`,
+          ].join('\n')
+          await noteCreate(ghlId, noteBody, noteUserId)
+          console.log(`[formulier] GHL note created for ${ghlId}`)
         }
 
         if (ghlId) {
@@ -105,7 +155,11 @@ export async function POST(req: Request) {
             .from('contacts')
             .update({
               ghl_synced:    true,
-              custom_fields: { intake_notes: notes || null, created_by: created_by || null, ghl_contact_id: ghlId },
+              custom_fields: {
+                intake_notes:   notes       || null,
+                created_by:     created_by  || null,
+                ghl_contact_id: ghlId,
+              },
             })
             .eq('id', contact.id)
         }

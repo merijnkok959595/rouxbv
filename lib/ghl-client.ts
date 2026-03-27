@@ -15,6 +15,8 @@ export const CF = {
   groothandel:       'fUZMZLuNMz65vp5jNpTp',
   klantType:         'jcerhe8lM5LZlEAUeiS0', // Lead | Klant
   klantLabel:        'AsuaTiVyw7vvuqTBNaOm', // A | B | C | D
+  klantSource:       'Srd2IIqbNrxO13qQ75a2', // Beurs + jaar, e.g. "NHBEURS 2026"
+  klantVolume:       'GZlhwSKmwUTIlngZ4ohU', // Numerical revenue
   posMateriaal:      'WA9PsHqzekxw19hb2chh', // Ja | Nee
   kortingsafspraken: 'mlJuMaVbLAmnCmbTVkPk', // Ja | Nee
   openingstijden:    '6zu8D82wfJEImG0b5PMS',
@@ -359,6 +361,8 @@ export function buildCustomFields(data: {
   groothandel?:       string
   klantType?:         string
   klantLabel?:        string
+  klantSource?:       string
+  klantVolume?:       number | string
   posMateriaal?:      string
   kortingsafspraken?: string
   openingstijden?:    string
@@ -368,6 +372,8 @@ export function buildCustomFields(data: {
   if (data.groothandel)       cf.push({ id: CF.groothandel,       value: data.groothandel })
   if (data.klantType)         cf.push({ id: CF.klantType,         value: data.klantType })
   if (data.klantLabel)        cf.push({ id: CF.klantLabel,        value: data.klantLabel })
+  if (data.klantSource)       cf.push({ id: CF.klantSource,       value: data.klantSource })
+  if (data.klantVolume != null) cf.push({ id: CF.klantVolume,     value: String(data.klantVolume) })
   if (data.posMateriaal)      cf.push({ id: CF.posMateriaal,      value: data.posMateriaal })
   if (data.kortingsafspraken) cf.push({ id: CF.kortingsafspraken, value: data.kortingsafspraken })
   if (data.openingstijden)    cf.push({ id: CF.openingstijden,    value: data.openingstijden })
