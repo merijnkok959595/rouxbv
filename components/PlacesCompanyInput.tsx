@@ -20,6 +20,7 @@ interface Props {
   onSelect:      (place: PlaceResult) => void
   initialValue?: string
   inputStyle?:   React.CSSProperties
+  className?:    string
   placeholder?:  string
   required?:     boolean
   autoFocus?:    boolean
@@ -112,7 +113,7 @@ function ensureGoogleMapsPlaces(apiKey: string): Promise<void> {
 }
 
 export default function PlacesCompanyInput({
-  onSelect, initialValue = '', inputStyle, placeholder = 'Bedrijfsnaam BV', required, autoFocus,
+  onSelect, initialValue = '', inputStyle, className, placeholder = 'Bedrijfsnaam BV', required, autoFocus,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const acRef    = useRef<AutocompleteCtl | null>(null)
@@ -197,6 +198,7 @@ export default function PlacesCompanyInput({
       placeholder={placeholder}
       defaultValue={initialValue}
       style={inputStyle}
+      className={className}
       autoComplete="off"
     />
   )

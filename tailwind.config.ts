@@ -65,6 +65,9 @@ const config: Config = {
         orbBreath:    { '0%,100%': { transform: 'scale(1)', opacity: '0.7' }, '50%': { transform: 'scale(1.06)', opacity: '1' } },
         orbSheen:     { '0%': { transform: 'rotate(0deg) translateX(20%) rotate(0deg)' }, '100%': { transform: 'rotate(360deg) translateX(20%) rotate(-360deg)' } },
       },
+      transitionTimingFunction: {
+        'drawer': 'cubic-bezier(0.22, 1, 0.36, 1)',
+      },
       animation: {
         'fade-up':    'fadeUp .4s ease',
         'msg-in':     'msgIn .2s ease',

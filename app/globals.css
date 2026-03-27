@@ -7,6 +7,7 @@
   *, *::before, *::after { box-sizing: border-box; }
 
   :root {
+    --nav-height: 80px;
     /* Keep CSS vars for the handful of places that still use them during migration */
     --bg:              #F7F6F3;
     --surface:         #FFFFFF;
@@ -89,11 +90,25 @@
   background: var(--surface); border-bottom: 1px solid var(--border);
   display: flex; align-items: center; padding: 0 24px; gap: 0;
 }
+@media (max-width: 639px) {
+  :root { --nav-height: 56px; }
+  .roux-nav { height: 56px; padding: 0 16px; }
+}
 .roux-nav-logo {
   font-size: 13px; font-weight: 800; color: var(--text);
   letter-spacing: -0.02em; text-decoration: none;
   margin-right: 28px; flex-shrink: 0;
 }
+@media (max-width: 639px) {
+  .roux-nav-logo { margin-right: 0; }
+}
+
+/* ── Mobile menu animation ──────────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fade-up 0.15s ease; }
 .roux-nav-items { display: flex; align-items: stretch; height: 100%; gap: 2px; }
 .roux-nav-item {
   display: flex; align-items: center; padding: 0 12px; height: 100%;

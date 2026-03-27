@@ -313,7 +313,7 @@ export default function FormulierPage() {
                 <div>
                   <PlacesCompanyInput
                     required autoFocus onSelect={handlePlaceSelect}
-                    inputStyle={{ width: '100%', padding: '10px 12px', fontSize: '15px', color: 'var(--text)', backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '7px', outline: 'none', boxSizing: 'border-box' }}
+                    className="field-input"
                     placeholder="Grootmeester"
                   />
                   <p className="text-xs text-muted mt-1.5">

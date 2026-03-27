@@ -106,7 +106,7 @@ export default function EvalPage() {
 
   return (
     <AdminGate>
-      <div className="px-6 py-6 max-w-[1100px] mx-auto">
+      <div className="px-4 sm:px-6 py-4 sm:py-6 max-w-[1100px] mx-auto">
         <h1 className="text-[18px] font-bold text-primary mb-1">Admin</h1>
         <p className="text-[13px] text-muted mb-6">
           SUUS Eval — haalt logs op van Twilio &amp; Retell → test door SUUS + GHL (dry-run, schrijft niets naar GHL)

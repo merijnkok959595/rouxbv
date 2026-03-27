@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Loader2, RefreshCw, Trophy } from 'lucide-react'
+import { Loader2, RefreshCw, Users, Gem, TrendingUp, PenLine, Send, Zap, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DateRangePicker, type DateRange } from '@/components/DateRangePicker'
+import { SourcePicker } from '@/components/SourcePicker'
 
 const MONO = "'SF Mono','Fira Code',ui-monospace,monospace"
 
@@ -15,43 +16,13 @@ function fmtVolume(v: number) {
   return `# ${v.toLocaleString('nl-NL')}`
 }
 
-const AWARD_DEFS = [
-  {
-    key:   'meeste_leads',
-    title: 'Meeste leads',
-    unit:  (v: number) => `${v} leads`,
-    desc:  'Wie heeft de meeste contacten aangemaakt?',
-  },
-  {
-    key:   'beste_lead',
-    title: 'Beste lead',
-    unit:  (v: number) => v > 0 ? fmtVolume(v) : '—',
-    desc:  'Hoogste volume op een enkele lead',
-  },
-  {
-    key:   'beste_pijplijn',
-    title: 'Beste pijplijn',
-    unit:  (v: number) => v > 0 ? fmtVolume(v) : '—',
-    desc:  'Meeste volume in A/B leads',
-  },
-  {
-    key:   'meeste_notities',
-    title: 'Grootste boekhouder',
-    unit:  (v: number) => `${v} notities`,
-    desc:  'Wie schrijft het meest?',
-  },
-  {
-    key:   'teamspeler',
-    title: 'Grootste teamspeler',
-    unit:  (v: number) => `${v} doorgegeven`,
-    desc:  'Leads gemaakt voor een collega',
-  },
-  {
-    key:   'grootste_dief',
-    title: 'Grootste dief',
-    unit:  (v: number) => `${v} gejat`,
-    desc:  'Meeste leads door anderen binngehaald',
-  },
+const AWARD_DEFS: { key: string; icon: LucideIcon; title: string; unit: (v: number) => string; desc: string }[] = [
+  { key: 'meeste_leads',    icon: Users,      title: 'Meeste leads',        unit: (v) => `${v} leads`,              desc: 'Wie heeft de meeste contacten aangemaakt?' },
+  { key: 'beste_lead',      icon: Gem,        title: 'Beste lead',          unit: (v) => v > 0 ? fmtVolume(v) : '—', desc: 'Hoogste volume op een enkele lead' },
+  { key: 'beste_pijplijn',  icon: TrendingUp, title: 'Beste pijplijn',      unit: (v) => v > 0 ? fmtVolume(v) : '—', desc: 'Meeste volume in A/B leads' },
+  { key: 'meeste_notities', icon: PenLine,    title: 'Boekhouder',          unit: (v) => `${v} notities`,           desc: 'Wie schrijft het meest?' },
+  { key: 'teamspeler',      icon: Send,       title: 'Teamspeler',          unit: (v) => `${v} doorgegeven`,        desc: 'Leads gemaakt voor een collega' },
+  { key: 'grootste_dief',   icon: Zap,        title: 'Dealtjes dief',       unit: (v) => `${v} gejat`,             desc: 'Meeste leads door anderen binnengehaald' },
 ]
 
 interface RankEntry { naam: string; value: number }
@@ -61,17 +32,6 @@ interface AwardsData {
   awards: Record<string, RankEntry[]>
 }
 
-function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick}
-      className={cn(
-        'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors whitespace-nowrap',
-        active ? 'bg-primary text-white' : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
-      )}>
-      {children}
-    </button>
-  )
-}
 
 export default function AwardsPage() {
   const [data,         setData]         = useState<AwardsData | null>(null)
@@ -118,15 +78,6 @@ export default function AwardsPage() {
 
   useEffect(() => { void fetchAwards(null, null) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function onSourceToggle(src: string) {
-    const next = !sourceFilter ? [src]
-      : sourceFilter.includes(src)
-        ? (sourceFilter.filter(s => s !== src).length === 0 ? null : sourceFilter.filter(s => s !== src))
-        : [...sourceFilter, src]
-    setSourceFilter(next)
-    void fetchAwards(next, dateRange)
-  }
-
   function onDateChange(range: DateRange) {
     setDateRange(range)
     void fetchAwards(sourceFilter, range)
@@ -134,12 +85,16 @@ export default function AwardsPage() {
 
   return (
     <div className="min-h-[calc(100vh-44px)] bg-bg text-primary">
-      <div className="max-w-[1100px] mx-auto px-6 pt-6 pb-16">
+      <div className="max-w-[1100px] mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-16">
 
         {/* Header */}
-        <div className="flex items-center gap-2 mb-5">
-          <Trophy size={18} className="text-primary" />
-          <h1 className="text-xl font-extrabold tracking-tight flex-1">Awards</h1>
+        <div className="flex items-start gap-2 mb-5">
+          <div className="flex-1">
+            <h1 className="text-xl font-extrabold tracking-tight">Awards</h1>
+            {data && data.total > 0 && (
+              <p className="text-[12px] text-muted mt-0.5 tabular-nums">{data.total} leads</p>
+            )}
+          </div>
           <button onClick={() => void fetchAwards(sourceFilter, dateRange)} disabled={loading}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg border border-border bg-surface text-primary cursor-pointer disabled:cursor-wait hover:bg-active transition-colors">
             <RefreshCw size={13} className={cn(loading && 'animate-spin')} />
@@ -149,25 +104,13 @@ export default function AwardsPage() {
 
         {/* Filter bar — datum links, BRON rechts */}
         <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
-          {/* Date picker — left */}
           <DateRangePicker value={dateRange} onChange={onDateChange} />
-
-          {/* BRON filter — right */}
           {data && data.sources.length > 0 && (
-            <div className="flex gap-1 flex-wrap items-center justify-end">
-              <span className="text-[11px] font-bold text-muted uppercase tracking-[0.06em] mr-0.5">Bron</span>
-              <Pill active={!sourceFilter} onClick={() => { setSourceFilter(null); void fetchAwards(null, dateRange) }}>
-                Alle
-              </Pill>
-              {data.sources.map(src => (
-                <Pill key={src} active={sourceFilter?.includes(src) ?? false} onClick={() => onSourceToggle(src)}>
-                  {src}
-                </Pill>
-              ))}
-              {data.total > 0 && (
-                <span className="text-xs text-muted ml-1">{data.total} leads</span>
-              )}
-            </div>
+            <SourcePicker
+              sources={data.sources}
+              value={sourceFilter}
+              onChange={next => { setSourceFilter(next); void fetchAwards(next, dateRange) }}
+            />
           )}
         </div>
 
@@ -180,10 +123,11 @@ export default function AwardsPage() {
             <Loader2 size={16} className="animate-spin" /> Laden…
           </div>
         ) : data ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {AWARD_DEFS.map(def => (
               <AwardCard
                 key={def.key}
+                icon={def.icon}
                 title={def.title}
                 desc={def.desc}
                 entries={data.awards[def.key] ?? []}
@@ -198,7 +142,8 @@ export default function AwardsPage() {
   )
 }
 
-function AwardCard({ title, desc, entries, unit, loading }: {
+function AwardCard({ icon: Icon, title, desc, entries, unit, loading }: {
+  icon:    LucideIcon
   title:   string
   desc:    string
   entries: RankEntry[]
@@ -210,34 +155,37 @@ function AwardCard({ title, desc, entries, unit, loading }: {
       'bg-surface border border-border rounded-xl overflow-hidden flex flex-col',
       loading && 'opacity-60 pointer-events-none',
     )}>
-      {/* Card header */}
-      <div className="px-4 py-3 border-b border-border bg-bg">
-        <div className="flex items-center gap-2">
-          <Trophy size={11} className="text-muted flex-shrink-0" />
-          <span className="text-[12px] font-extrabold text-primary uppercase tracking-[0.05em]">{title}</span>
+      {/* Card header — light gray with lucide icon */}
+      <div className="px-3.5 pt-3 pb-2.5 bg-active border-b border-border">
+        <div className="flex items-center gap-1.5">
+          <Icon size={12} strokeWidth={2.5} className="text-primary flex-shrink-0" />
+          <span className="text-[11px] font-black text-primary uppercase tracking-[0.06em] leading-tight">{title}</span>
         </div>
-        <p className="text-[10px] text-muted mt-0.5 leading-snug">{desc}</p>
+        <span className="block text-[10px] text-muted mt-0.5 leading-snug">{desc}</span>
       </div>
 
       {/* Podium */}
       <div className="flex flex-col divide-y divide-border flex-1">
         {entries.length === 0 ? (
-          <div className="px-4 py-6 text-center text-sm text-muted">Nog geen data</div>
+          <div className="px-3.5 py-5 text-center text-xs text-muted">Nog geen data</div>
         ) : (
           <>
             {entries.map((e, i) => {
               const isFirst = i === 0
               return (
-                <div key={e.naam} className="flex items-center gap-3 px-4 py-3">
-                  <span className="text-[18px] leading-none w-6 flex-shrink-0">{MEDAL[i]}</span>
+                <div key={e.naam} className={cn(
+                  'flex items-center gap-2 px-3.5',
+                  isFirst ? 'py-2.5' : 'py-1.5',
+                )}>
+                  <span className="text-[13px] leading-none flex-shrink-0 w-4 text-center">{MEDAL[i]}</span>
                   <span className={cn(
-                    'flex-1 truncate',
-                    isFirst ? 'text-[14px] font-bold text-primary' : 'text-[13px] font-medium text-primary',
+                    'flex-1 min-w-0 truncate',
+                    isFirst ? 'text-[13px] font-bold text-primary' : 'text-[11px] font-medium text-secondary',
                   )}>
                     {e.naam}
                   </span>
                   <span
-                    className="text-[11px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0 whitespace-nowrap text-muted"
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 whitespace-nowrap text-muted tabular-nums"
                     style={{ backgroundColor: 'var(--active)', fontFamily: MONO }}
                   >
                     {unit(e.value)}
@@ -245,11 +193,10 @@ function AwardCard({ title, desc, entries, unit, loading }: {
                 </div>
               )
             })}
-            {/* Ghost rows to keep uniform height */}
             {entries.length < 3 && Array.from({ length: 3 - entries.length }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3 opacity-25">
-                <span className="text-[18px] leading-none w-6">{MEDAL[entries.length + i]}</span>
-                <span className="text-[13px] text-muted">—</span>
+              <div key={i} className="flex items-center gap-2 px-3.5 py-1.5 opacity-20">
+                <span className="text-[13px] leading-none w-4 text-center">{MEDAL[entries.length + i]}</span>
+                <span className="text-[11px] text-muted">—</span>
               </div>
             ))}
           </>

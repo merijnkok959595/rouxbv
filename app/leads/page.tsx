@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Loader2, RefreshCw, Zap } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DateRangePicker, type DateRange } from '@/components/DateRangePicker'
+import { SourcePicker } from '@/components/SourcePicker'
 
 const MONO = "'SF Mono','Fira Code',ui-monospace,monospace"
 
@@ -70,8 +71,6 @@ export default function LeadsPage() {
   const [members,        setMembers]        = useState<TeamMember[]>([])
   const [dateRange,      setDateRange]      = useState<DateRange>(null)
   const [sourceFilter,   setSourceFilter]   = useState<string[] | null>(null)
-  const [enriching,      setEnriching]      = useState(false)
-  const [enrichMsg,      setEnrichMsg]      = useState<string | null>(null)
 
   async function load() {
     setLoading(true); setError(null)
@@ -91,20 +90,6 @@ export default function LeadsPage() {
       setLeads([])
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function enrichAll() {
-    setEnriching(true); setEnrichMsg(null)
-    try {
-      const res  = await fetch('/api/intelligence/enrich-all', { method: 'POST' })
-      const data = await res.json() as { scored?: number; total?: number; errors?: string[] }
-      setEnrichMsg(`${data.scored ?? 0} van ${data.total ?? 0} leads verrijkt`)
-      void load()
-    } catch {
-      setEnrichMsg('Verrijking mislukt')
-    } finally {
-      setEnriching(false)
     }
   }
 
@@ -144,30 +129,18 @@ export default function LeadsPage() {
     return result
   }, [leads, dateRange, sourceFilter])
 
-  function toggleSource(src: string) {
-    setSourceFilter(prev => {
-      if (!prev) return [src]
-      const has = prev.includes(src)
-      const next = has ? prev.filter(s => s !== src) : [...prev, src]
-      return next.length === 0 ? null : next
-    })
-  }
-
   return (
     <div className="min-h-[calc(100vh-44px)] bg-bg text-primary">
-      <div className="max-w-[1200px] mx-auto px-6 pt-6 pb-12">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-12">
 
         {/* Header */}
-        <div className="flex items-center gap-2 mb-5 flex-wrap">
-          <h1 className="text-xl font-extrabold tracking-tight flex-1">Leads</h1>
-          {enrichMsg && (
-            <span className="text-xs text-green-600 font-semibold">{enrichMsg}</span>
-          )}
-          <button onClick={() => void enrichAll()} disabled={enriching || loading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg border border-border bg-surface text-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:bg-active transition-colors">
-            {enriching ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
-            {enriching ? 'Verrijken…' : 'Verrijk alle'}
-          </button>
+        <div className="flex items-start gap-2 mb-5">
+          <div className="flex-1">
+            <h1 className="text-xl font-extrabold tracking-tight">Leads</h1>
+            {filtered.length > 0 && (
+              <p className="text-[12px] text-muted mt-0.5 tabular-nums">{filtered.length} leads</p>
+            )}
+          </div>
           <button onClick={() => void load()} disabled={loading}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-lg border border-border bg-surface text-primary cursor-pointer disabled:cursor-wait hover:bg-active transition-colors">
             <RefreshCw size={13} className={cn(loading && 'animate-spin')} />
@@ -177,7 +150,7 @@ export default function LeadsPage() {
 
         {/* Stats */}
         {stats && (
-          <div className="flex gap-2.5 mb-5 flex-wrap">
+          <div className="flex gap-2 sm:gap-2.5 mb-5">
             <StatTile label="Totaal leads" value={stats.total.toString()} />
             <StatTile label="Vandaag"      value={stats.today.toString()} />
             <StatTile label="PIJPLIJN"     value={stats.pipeline > 0 ? fmtRevenue(stats.pipeline) : '—'} wide />
@@ -191,31 +164,11 @@ export default function LeadsPage() {
 
           {/* BRON filter — right */}
           {uniqueSources.length > 0 && (
-            <div className="flex gap-1 flex-wrap items-center justify-end">
-              <span className="text-[11px] font-bold text-muted uppercase tracking-[0.06em] mr-0.5">Bron</span>
-              <button
-                onClick={() => setSourceFilter(null)}
-                className={cn(
-                  'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors',
-                  !sourceFilter
-                    ? 'bg-primary text-white'
-                    : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
-                )}>
-                Alle
-              </button>
-              {uniqueSources.map(src => (
-                <button key={src} onClick={() => toggleSource(src)}
-                  className={cn(
-                    'px-3 py-1 rounded-full text-xs font-semibold cursor-pointer border-none transition-colors',
-                    sourceFilter?.includes(src)
-                      ? 'bg-primary text-white'
-                      : 'bg-surface text-muted outline outline-1 outline-border hover:bg-active',
-                  )}>
-                  {src}
-                </button>
-              ))}
-              <span className="text-xs text-muted ml-1">{filtered.length}</span>
-            </div>
+            <SourcePicker
+              sources={uniqueSources}
+              value={sourceFilter}
+              onChange={setSourceFilter}
+            />
           )}
         </div>
 
@@ -325,9 +278,9 @@ export default function LeadsPage() {
 
 function StatTile({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
   return (
-    <div className={cn('flex-shrink-0 bg-surface border border-border rounded-[10px] px-3.5 py-3 flex flex-col gap-1', wide ? 'min-w-[180px]' : 'w-[148px]')}>
-      <span className="text-[11px] font-semibold text-muted uppercase tracking-[0.05em]">{label}</span>
-      <span className="text-[26px] font-extrabold text-primary leading-[1.1] tracking-tight" style={{ fontFamily: MONO }}>
+    <div className={cn('flex-1 min-w-0 bg-surface border border-border rounded-[10px] px-3 sm:px-3.5 py-3 flex flex-col gap-1', wide && 'sm:min-w-[180px]')}>
+      <span className="text-[10px] sm:text-[11px] font-semibold text-muted uppercase tracking-[0.05em] truncate">{label}</span>
+      <span className="text-[22px] sm:text-[26px] font-extrabold text-primary leading-[1.1] tracking-tight" style={{ fontFamily: MONO }}>
         {value}
       </span>
     </div>

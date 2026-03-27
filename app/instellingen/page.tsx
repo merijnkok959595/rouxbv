@@ -242,7 +242,7 @@ export default function InstellingenPage() {
         </div>
       </div>
 
-      <div className="max-w-[1200px] mx-auto px-6 py-6">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-4 sm:py-6">
         {loading ? (
           <p className="text-[13px] text-muted text-center mt-16">Laden…</p>
         ) : (
