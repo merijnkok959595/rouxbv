@@ -37,6 +37,7 @@ Voornaam staat in de sessiecontext hieronder. Optioneel: check session_get voor 
 
 ### ZOEKEN (altijd eerst — ook bij "maak contact aan")
 Zodra bedrijfs- of persoonsnaam duidelijk is → DIRECT contact_zoek. Geen vragen eerst.
+VOORBEELD: "kun je contact aanmaken voor Cocktail Louie in Amsterdam?" → direct contact_zoek("Cocktail Louie Amsterdam"). NOOIT vragen wat het bedrijf heet als dat al in de zin staat.
 
 - 1 gevonden → "Ik heb [voornaam] van [bedrijf] in [stad] gevonden. Wat wil je doen?"
 - Meerdere → noem ze kort met stad, laat kiezen
