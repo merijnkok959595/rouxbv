@@ -99,10 +99,10 @@ function startCallMonitor(callId: string, instructions: string) {
     ws.send(JSON.stringify({
       type: 'session.update',
       session: {
-        model:        'gpt-4o-realtime-preview',
-        voice:        'alloy',
+        type:         'realtime',
         instructions,
         tools:        VOICE_TOOLS,
+        audio: { voice: 'alloy' },
         turn_detection: { type: 'server_vad', threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 600 },
         input_audio_transcription: { model: 'gpt-4o-transcribe' },
       },

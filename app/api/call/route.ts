@@ -244,9 +244,9 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model:        'gpt-4o-realtime-preview',
-        voice:        'alloy',
         instructions,
         tools:        VOICE_TOOLS,
+        audio: { voice: 'alloy' },
         turn_detection: {
           type:                'server_vad',
           threshold:           0.5,

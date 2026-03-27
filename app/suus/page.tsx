@@ -433,7 +433,7 @@ export default function SuusPage() {
       const dc = pc.createDataChannel('oai-events'); dcRef.current = dc
       dc.onopen = () => {
         setCallStatus('active')
-        dc.send(JSON.stringify({ type: 'session.update', session: { input_audio_transcription: { model: 'whisper-1' } } }))
+        dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', input_audio_transcription: { model: 'whisper-1' } } }))
       }
       dc.onclose = () => { if (callingRef.current) stopCall() }; dc.onmessage = handleRealtimeEvent
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer)
