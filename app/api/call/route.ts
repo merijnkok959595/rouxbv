@@ -69,7 +69,6 @@ export async function POST(req: Request) {
           threshold:           0.5,
           prefix_padding_ms:   300,
           silence_duration_ms: 900,
-          eagerness:           'high',
         },
         input_audio_transcription: { model: 'gpt-4o-transcribe', language: 'nl' },
       }),
