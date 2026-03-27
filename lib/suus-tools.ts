@@ -191,14 +191,19 @@ export const ghlTools = {
       const googleRes   = await withTimeout(googleZoekAdres(googleQuery), 4000, { found: false })
 
       if (googleRes.found && googleRes.name) {
-        const correctedTerms = (googleRes.name as string)
-          .toLowerCase().split(/\s+/).filter((t: string) => t.length >= 3)
+        const googleName     = googleRes.name as string
+        const correctedTerms = googleName.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 3)
+        // Also try stripping French prefixes like "L'OUI" → "OUI", "Le Bar" → "Bar"
+        const strippedName   = googleName.replace(/^(l'|le |la |de |het |den )/i, '').trim()
 
-        const [retrySimple, retryAdv] = await Promise.all([
-          withTimeout(contactSearch(googleRes.name as string, 10),                            4000, emptyGHL),
+        const [retrySimple, retryAdv, retryStripped] = await Promise.all([
+          withTimeout(contactSearch(googleName, 10),                                          4000, emptyGHL),
           withTimeout(contactSearchAdvanced({ searchTerms: correctedTerms, cityFilter }),     4000, emptyGHL),
+          strippedName !== googleName
+            ? withTimeout(contactSearch(strippedName, 10),                                    4000, emptyGHL)
+            : Promise.resolve(emptyGHL),
         ])
-        const retryAll  = [...(retrySimple.contacts ?? []), ...(retryAdv.contacts ?? [])]
+        const retryAll  = [...(retrySimple.contacts ?? []), ...(retryAdv.contacts ?? []), ...(retryStripped.contacts ?? [])]
         const retrySeen = new Set<string>()
         const retryUniq = retryAll.filter(c => {
           const id = c.id ?? ''; if (!id || retrySeen.has(id)) return false; retrySeen.add(id); return true
