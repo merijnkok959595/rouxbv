@@ -20,12 +20,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       website?:           string
       openingHours?:      string
       groothandel?:       string
+      klantType?:         string
       posMateriaal?:      string
       kortingsafspraken?: string
       producten?:         string
     }
 
     const customFields = buildCustomFields({
+      klantType:         body.klantType,
       groothandel:       body.groothandel,
       posMateriaal:      body.posMateriaal,
       kortingsafspraken: body.kortingsafspraken,

@@ -1,6 +1,6 @@
 'use client'
 
-import { MapPin, Phone, Plus, Pencil, Eye, User, Building2 } from 'lucide-react'
+import { MapPin, Phone, Plus, Pencil, Eye, User } from 'lucide-react'
 import type { ContactFormPrefilled } from './ContactForm'
 
 // ── ContactFormCard ───────────────────────────────────────────────────────────
@@ -31,26 +31,16 @@ export function ContactFormCard({ prefilled, done, onClick }: ContactFormCardPro
     <div className="bg-surface border border-border rounded-xl overflow-hidden w-full max-w-[340px] text-[13px]">
       {/* Header */}
       <div className="px-4 py-3.5 bg-bg border-b border-border">
-        <div className="flex items-start gap-2.5">
-          <div className="w-[30px] h-[30px] rounded-lg bg-bg border border-border flex items-center justify-center flex-shrink-0">
-            <Building2 size={14} className="text-muted" />
+        <div className="text-sm font-bold text-primary tracking-tight leading-snug">{company}</div>
+        {isEdit && personStr && (
+          <div className="flex items-center gap-1 text-xs text-muted mt-0.5">
+            <User size={11} /> {personStr}
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold text-primary tracking-tight leading-snug">{company}</div>
-            {isEdit && personStr && (
-              <div className="flex items-center gap-1 text-xs text-muted mt-0.5">
-                <User size={11} /> {personStr}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2 mt-2.5">
-          {prefilled.city && (
-            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted"><MapPin size={10} /> {prefilled.city}</span>
-          )}
-          {!isEdit && addrStr && !prefilled.city && (
-            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted overflow-hidden text-ellipsis whitespace-nowrap max-w-[200px]">
-              <MapPin size={10} /> {addrStr}
+        )}
+        <div className="flex flex-wrap gap-2 mt-2">
+          {(addrStr || prefilled.city) && (
+            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted">
+              <MapPin size={10} /> {addrStr || prefilled.city}
             </span>
           )}
           {prefilled.phone && (

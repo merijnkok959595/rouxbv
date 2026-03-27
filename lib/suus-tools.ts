@@ -416,6 +416,7 @@ Retourneert { action: "render_form", ... } — de frontend rendert direct een be
     }),
     execute: async ({ contactId, companyName }) => {
       const CF_IDS = {
+        klantType:         'jcerhe8lM5LZlEAUeiS0',
         groothandel:       'fUZMZLuNMz65vp5jNpTp',
         kortingsafspraken: 'mlJuMaVbLAmnCmbTVkPk',
         posMateriaal:      'WA9PsHqzekxw19hb2chh',
@@ -433,6 +434,7 @@ Retourneert { action: "render_form", ... } — de frontend rendert direct een be
         if (contact.address1)    prefilled.address1          = contact.address1
         if (contact.postalCode)  prefilled.postalCode        = contact.postalCode
         if (contact.city)        prefilled.city              = contact.city
+        const kt = cfMap[CF_IDS.klantType];         if (kt) prefilled.klantType         = kt
         const gh = cfMap[CF_IDS.groothandel];       if (gh) prefilled.groothandel       = gh
         const ko = cfMap[CF_IDS.kortingsafspraken]; if (ko) prefilled.kortingsafspraken = ko
         const po = cfMap[CF_IDS.posMateriaal];      if (po) prefilled.posMateriaal      = po

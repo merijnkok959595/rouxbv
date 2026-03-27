@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Check, Loader2, MapPin, Phone, Globe, User, Building2, ShoppingCart } from 'lucide-react'
+import { X, Check, Loader2, MapPin, Phone, Globe, User, Building2, ShoppingCart, Tag } from 'lucide-react'
 import { cn }              from '@/lib/utils'
 import { Field, TwoCol, FieldSection } from '@/components/ui/field'
 
@@ -21,6 +21,7 @@ export interface ContactFormPrefilled {
   kortingsafspraken?: string
   posMateriaal?:      string
   producten?:         string
+  klantType?:         string   // 'Lead' | 'Klant'
 }
 
 interface ContactFormProps {
@@ -29,9 +30,53 @@ interface ContactFormProps {
   onCancel?:  () => void
 }
 
-const GROOTHANDEL_OPTIONS = [
-  'Bidfood', 'Hanos', 'Sligro', 'Makro', 'Metro',
-  'Van Toor', 'De Kweker', 'Instock', 'Eigen inkoop', 'Anders',
+// Full groothandel list — synced with GHL custom field options
+export const GROOTHANDEL_OPTIONS: string[] = [
+  // Bidfood
+  'Bidfood Amsterdam', 'Bidfood Den Haag', 'Bidfood Drachten', 'Bidfood Ede', 'Bidfood Emmen',
+  'Bidfood Geleen', 'Bidfood Goirle', 'Bidfood Groningen', 'Bidfood Harderwijk', 'Bidfood Helmond',
+  'Bidfood Hengelo', 'Bidfood Hoofddorp', 'Bidfood Nieuwegein', 'Bidfood Rogat', 'Bidfood Schiedam',
+  'Bidfood Utrecht', 'Bidfood Zierikzee',
+  // Hanos
+  'Hanos Ameland', 'Hanos Amsterdam', 'Hanos Antwerpen', 'Hanos Apeldoorn', 'Hanos Den Haag-Delft',
+  'Hanos Doetinchem', 'Hanos Eindhoven', 'Hanos Groningen', 'Hanos Haarlem', 'Hanos Hasselt',
+  'Hanos Heereveen', 'Hanos Heerlen', 'Hanos Hengelo', 'Hanos ISPC Breda', 'Hanos ISPC Utrecht Nieuwegein',
+  'Hanos Maastricht', 'Hanos Nijmegen', 'Hanos Texel', 'Hanos Venlo', 'Hanos Zwolle',
+  // Sligro
+  "Sligro 's Hertogenbosch", 'Sligro Alkmaar', 'Sligro Almelo', 'Sligro Almere', 'Sligro Amersfoort',
+  'Sligro Amsterdam', 'Sligro Apeldoorn', 'Sligro Arnhem', 'Sligro Assen', 'Sligro Bergen op Zoom',
+  'Sligro Breda', 'Sligro De Kweker Purmerend', 'Sligro Den Haag Forepark', 'Sligro Den Haag Kerketuinen',
+  'Sligro Deventer', 'Sligro Doetichem', 'Sligro Drachten', 'Sligro Eindhoven', 'Sligro Emmen',
+  'Sligro Enschede', 'Sligro Goes', 'Sligro Gorichem', 'Sligro Gouda', 'Sligro Groningen',
+  'Sligro Haarlem', 'Sligro Heerlen', 'Sligro Helmond', 'Sligro Hilversum', 'Sligro Leeuwarden',
+  'Sligro Leiden', 'Sligro Maastricht', 'Sligro Nieuwegein', 'Sligro Nijmegen', 'Sligro Roermond',
+  'Sligro Roosendaal', 'Sligro Rotterdam Spaanse Polder', 'Sligro Rotterdam-Zuid', 'Sligro Sittard',
+  'Sligro Sluis', 'Sligro Terneuzen', 'Sligro Texel', 'Sligro Tiel', 'Sligro Tilburg',
+  'Sligro Utrecht-Cartesiusweg', 'Sligro Veghel', 'Sligro Venlo', 'Sligro Vlissingen',
+  'Sligro Weert', 'Sligro Zwolle',
+  // VHC
+  'VHC Jongens Oostzaan', 'VHC Jongens Texel', 'VHC Jongens Almere', 'VHC Actifood Oosterwolde',
+  'VHC Kreko Moerdijk', 'VHC Kreko Ede', 'VHC Kreko Goes', 'VHC Kreko Hellevoetsluis',
+  'VHC Kreko Pijnacker', 'VHC Kreko Geldermalsen', 'VHC Van der Star',
+  // Makro / Metro / overige groten
+  'Makro', 'Metro',
+  // Overig
+  'ABZ Anloo BV', 'Broekhuyzen Horecagroothandel Noordwijk', 'Brouwer Horeca',
+  'Chefs Culinair Nijmegen', 'Combigro Helmink Foodservice', 'De Groot Edelgebak',
+  'De Jong Diepvries BV', 'De Kweker', 'DG Grootverbruik Den Hoorn',
+  'Fontijn vlees en vleeswaren', 'Foodpartners BV', 'Froster BV Waalwijk',
+  'Haymana Groothandel', 'Hoka Foodservice Den Haag', 'Horeca Groothandel Tilburg',
+  'Horeca Groothandel Waddinxveen', 'Horesca Lieferink Goirle', 'Horesca Lieferink Leiderdorp',
+  'Horesca Lieferink Meppel', 'Horesca Lieferink Raamsdonkveer', 'Horesca Lieferink Twello',
+  'Horesca Lieferink Zeist', 'Howa Foodservice BV', 'Huize Horeca Beverwijk',
+  'Instock', 'Jansen Foodservice Apeldoorn', 'Jansen Foodservice Doetichem',
+  'Jansen Foodservice Lochem', 'JR Food', 'Keijzers Horecaservice', 'Krikke',
+  'MarSchee Helmond', "Palvé Heerhugowaard", "Palvé Leeuwarden",
+  'QSTA BV', 'Robben Horeca BV', 'Schiava Groningen', 'V&S Horeca',
+  'Van Der Wee Grootverbruik', 'Van Rijsingen Diepvries Deurne', 'Van Rijsingen Diepvries Helmond',
+  'Van Rijsingen Diepvries Veghel', 'Van Toor', 'Veldboer Eenhoorn', 'Verhage Foodservice BV',
+  // Generiek
+  'Eigen inkoop', 'Anders',
 ]
 
 const PRODUCTEN_OPTIONS = [
@@ -70,7 +115,13 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
   const [lastName,          setLastName]          = useState(prefilled.lastName    ?? '')
   const [email,             setEmail]             = useState(prefilled.email       ?? '')
   const [phone,             setPhone]             = useState(prefilled.phone       ?? '')
+  const [address1,          setAddress1]          = useState(prefilled.address1    ?? '')
+  const [postalCode,        setPostalCode]        = useState(prefilled.postalCode  ?? '')
+  const [city,              setCity]              = useState(prefilled.city        ?? '')
   const [groothandel,       setGroothandel]       = useState(prefilled.groothandel ?? '')
+  const [klantType,         setKlantType]         = useState<'Lead' | 'Klant' | ''>(
+    (prefilled.klantType as 'Lead' | 'Klant') ?? '',
+  )
   const [kortingsafspraken, setKortingsafspraken] = useState<'Ja' | 'Nee' | ''>((prefilled.kortingsafspraken as 'Ja' | 'Nee') ?? '')
   const [posMateriaal,      setPosMateriaal]      = useState<'Ja' | 'Nee' | ''>((prefilled.posMateriaal as 'Ja' | 'Nee') ?? '')
   const [producten,         setProducten]         = useState<string[]>(
@@ -79,12 +130,12 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
 
-  const address1     = prefilled.address1     ?? ''
-  const postalCode   = prefilled.postalCode   ?? ''
-  const city         = prefilled.city         ?? ''
   const website      = prefilled.website      ?? ''
   const openingHours = prefilled.openingHours ?? ''
   const isEdit       = !!prefilled.contactId
+
+  // Show Google strip if new contact was Google-enriched
+  const hasGoogleData = !isEdit && (prefilled.address1 || prefilled.phone || prefilled.website)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -97,7 +148,12 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
         lastName:    lastName    || undefined,
         email:       email       || undefined,
         phone:       phone       || undefined,
-        address1, postalCode, city, website, openingHours,
+        address1:    address1    || undefined,
+        postalCode:  postalCode  || undefined,
+        city:        city        || undefined,
+        website:     website     || undefined,
+        openingHours: openingHours || undefined,
+        klantType:         klantType         || undefined,
         groothandel:       groothandel       || undefined,
         kortingsafspraken: kortingsafspraken || undefined,
         posMateriaal:      posMateriaal      || undefined,
@@ -137,22 +193,22 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
         )}
       </div>
 
-      {/* Google prefill strip */}
-      {(address1 || phone || website) && (
+      {/* Google prefill strip — only for new contacts */}
+      {hasGoogleData && (
         <div className="px-5 py-2.5 bg-bg border-b border-border flex flex-col gap-1">
           <span className="text-[10px] font-extrabold text-brand tracking-[0.08em] uppercase">
             Gevonden via Google
           </span>
-          {address1 && (
+          {prefilled.address1 && (
             <div className="flex items-start gap-1.5 text-xs text-muted">
               <MapPin size={11} className="mt-px text-brand flex-shrink-0" />
-              <span>{address1}{postalCode || city ? `, ${[postalCode, city].filter(Boolean).join(' ')}` : ''}</span>
+              <span>{prefilled.address1}{(prefilled.postalCode || prefilled.city) ? `, ${[prefilled.postalCode, prefilled.city].filter(Boolean).join(' ')}` : ''}</span>
             </div>
           )}
-          {phone && (
+          {prefilled.phone && (
             <div className="flex items-center gap-1.5 text-xs text-muted">
               <Phone size={11} className="text-brand flex-shrink-0" />
-              <span>{phone}</span>
+              <span>{prefilled.phone}</span>
             </div>
           )}
           {website && (
@@ -172,15 +228,48 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
         </div>
       )}
 
+      {/* Section: Type */}
+      <FieldSection title="Type" icon={<Tag size={13} />}>
+        <Field label="Klant type" required>
+          <div className="flex gap-1.5">
+            {(['Lead', 'Klant'] as const).map(v => (
+              <ToggleBtn key={v} active={klantType === v}
+                onClick={() => setKlantType(p => p === v ? '' : v)}>
+                {v}
+              </ToggleBtn>
+            ))}
+          </div>
+        </Field>
+      </FieldSection>
+
       {/* Section: Bedrijf */}
       <FieldSection title="Bedrijf" icon={<Building2 size={13} />}>
-        <Field label={<>Bedrijfsnaam {prefilled.companyName && <GoogleBadge />}</>} required>
+        <Field label={<>Bedrijfsnaam {prefilled.companyName && !isEdit && <GoogleBadge />}</>} required>
           <input
             value={companyName} onChange={e => setCompanyName(e.target.value)}
-            className={cn('field-input', prefilled.companyName && 'bg-active')}
+            className={cn('field-input', prefilled.companyName && !isEdit && 'bg-active')}
             placeholder="Café de Boom" required autoFocus
           />
         </Field>
+        <Field label={<>Adres {prefilled.address1 && !isEdit && <GoogleBadge />}</>}>
+          <input
+            value={address1} onChange={e => setAddress1(e.target.value)}
+            className={cn('field-input', prefilled.address1 && !isEdit && 'bg-active')}
+            placeholder="Hoofdstraat 1"
+          />
+        </Field>
+        <TwoCol>
+          <Field label="Postcode">
+            <input value={postalCode} onChange={e => setPostalCode(e.target.value)}
+              className={cn('field-input', prefilled.postalCode && !isEdit && 'bg-active')}
+              placeholder="1234 AB" />
+          </Field>
+          <Field label="Stad">
+            <input value={city} onChange={e => setCity(e.target.value)}
+              className={cn('field-input', prefilled.city && !isEdit && 'bg-active')}
+              placeholder="Amsterdam" />
+          </Field>
+        </TwoCol>
       </FieldSection>
 
       {/* Section: Contactpersoon */}
@@ -199,9 +288,9 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
           <input value={email} onChange={e => setEmail(e.target.value)}
             className="field-input" placeholder="jan@cafe.nl" type="email" />
         </Field>
-        <Field label={<>Telefoonnummer {prefilled.phone && <GoogleBadge />}</>}>
+        <Field label={<>Telefoonnummer {prefilled.phone && !isEdit && <GoogleBadge />}</>}>
           <input value={phone} onChange={e => setPhone(e.target.value)}
-            className={cn('field-input', prefilled.phone && 'bg-active')}
+            className={cn('field-input', prefilled.phone && !isEdit && 'bg-active')}
             placeholder="+31612345678" type="tel" />
         </Field>
       </FieldSection>
@@ -209,11 +298,18 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
       {/* Section: Extra */}
       <FieldSection title="Extra" icon={<ShoppingCart size={13} />}>
         <Field label="Groothandel">
-          <select value={groothandel} onChange={e => setGroothandel(e.target.value)}
-            className="field-input cursor-pointer">
-            <option value="">— kies groothandel —</option>
-            {GROOTHANDEL_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
+          {/* datalist = free text + autocomplete for all GHL options */}
+          <input
+            value={groothandel}
+            onChange={e => setGroothandel(e.target.value)}
+            list="groothandel-list"
+            className="field-input"
+            placeholder="Typ of kies groothandel…"
+            autoComplete="off"
+          />
+          <datalist id="groothandel-list">
+            {GROOTHANDEL_OPTIONS.map(g => <option key={g} value={g} />)}
+          </datalist>
         </Field>
 
         <Field label="Kortingsafspraken">
