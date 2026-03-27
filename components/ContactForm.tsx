@@ -86,7 +86,7 @@ const PRODUCTEN_OPTIONS = [
 
 function GoogleBadge() {
   return (
-    <span className="text-[10px] font-bold text-brand bg-brand-subtle rounded px-1.5 py-px tracking-wide ml-1.5">
+    <span className="text-[10px] font-semibold text-muted bg-active border border-border rounded px-1.5 py-px tracking-wide ml-1.5">
       Google
     </span>
   )
@@ -100,7 +100,7 @@ function ToggleBtn({ active, onClick, children }: { active: boolean; onClick: ()
       className={cn(
         'flex-1 py-2.5 text-sm font-medium rounded-lg border transition-all duration-150',
         active
-          ? 'bg-brand border-brand text-white'
+          ? 'bg-primary border-primary text-white'
           : 'bg-surface border-border text-muted hover:bg-active',
       )}
     >
@@ -196,26 +196,26 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
       {/* Google prefill strip — only for new contacts */}
       {hasGoogleData && (
         <div className="px-5 py-2.5 bg-bg border-b border-border flex flex-col gap-1">
-          <span className="text-[10px] font-extrabold text-brand tracking-[0.08em] uppercase">
+          <span className="text-[10px] font-extrabold text-primary tracking-[0.08em] uppercase">
             Gevonden via Google
           </span>
           {prefilled.address1 && (
             <div className="flex items-start gap-1.5 text-xs text-muted">
-              <MapPin size={11} className="mt-px text-brand flex-shrink-0" />
+              <MapPin size={11} className="mt-px text-secondary flex-shrink-0" />
               <span>{prefilled.address1}{(prefilled.postalCode || prefilled.city) ? `, ${[prefilled.postalCode, prefilled.city].filter(Boolean).join(' ')}` : ''}</span>
             </div>
           )}
           {prefilled.phone && (
             <div className="flex items-center gap-1.5 text-xs text-muted">
-              <Phone size={11} className="text-brand flex-shrink-0" />
+              <Phone size={11} className="text-secondary flex-shrink-0" />
               <span>{prefilled.phone}</span>
             </div>
           )}
           {website && (
             <div className="flex items-center gap-1.5 text-xs">
-              <Globe size={11} className="text-brand flex-shrink-0" />
+              <Globe size={11} className="text-secondary flex-shrink-0" />
               <a href={website} target="_blank" rel="noreferrer"
-                className="text-brand truncate max-w-[280px] no-underline hover:underline">
+                className="text-primary underline underline-offset-2 truncate max-w-[280px]">
                 {website.replace(/^https?:\/\//, '')}
               </a>
             </div>
@@ -350,7 +350,7 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
                 >
                   <span className={cn(
                     'w-[15px] h-[15px] rounded-[4px] border flex items-center justify-center flex-shrink-0 transition-colors',
-                    checked ? 'bg-brand border-brand' : 'bg-surface border-border',
+                    checked ? 'bg-primary border-primary' : 'bg-surface border-border',
                   )}>
                     {checked && <Check size={9} strokeWidth={3} className="text-white" />}
                   </span>
