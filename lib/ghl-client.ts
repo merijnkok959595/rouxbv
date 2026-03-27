@@ -312,14 +312,44 @@ export async function googleZoekAdres(query: string) {
   const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim()
   if (!key) return { found: false, error: 'No Google Maps key' }
   try {
-    // Text Search
+    // Text Search — fetch top 5 candidates
     const searchRes  = await fetch(
       `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${key}&language=nl&region=nl`,
       { cache: 'no-store' },
     )
     const searchData = await searchRes.json()
-    const place      = searchData.results?.[0]
-    if (!place) return { found: false }
+    const candidates: { place_id: string; name: string; formatted_address: string }[] =
+      (searchData.results ?? []).slice(0, 5)
+    if (candidates.length === 0) return { found: false }
+
+    // Pick best match using cheap LLM if multiple results
+    let bestIdx = 0
+    if (candidates.length > 1) {
+      try {
+        const openaiKey = process.env.OPENAI_API_KEY?.trim()
+        if (openaiKey) {
+          const list = candidates.map((c, i) => `${i}: ${c.name} — ${c.formatted_address}`).join('\n')
+          const llmRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              temperature: 0,
+              max_tokens: 5,
+              messages: [
+                { role: 'system', content: 'Return ONLY the index number (0-4) of the best matching result for the user query. Nothing else.' },
+                { role: 'user', content: `Query: "${query}"\n\nCandidates:\n${list}` },
+              ],
+            }),
+          })
+          const llmData = await llmRes.json() as { choices?: { message?: { content?: string } }[] }
+          const idx = parseInt(llmData.choices?.[0]?.message?.content?.trim() ?? '0', 10)
+          if (!isNaN(idx) && idx >= 0 && idx < candidates.length) bestIdx = idx
+        }
+      } catch { /* fallback to index 0 */ }
+    }
+
+    const place = candidates[bestIdx]
 
     // Place Details
     const detailRes  = await fetch(
