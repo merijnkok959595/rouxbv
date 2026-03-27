@@ -343,12 +343,19 @@ Als rep zegt "Sligro" zonder stad → vraag welke vestiging. "Onbekend" of "geen
 
       // ── Duplicate check (skip if force_create=true) ─────────────────────────
       if (!force_create) {
+        const companyTerms = normalizeContactQuery(fields.companyName ?? '').searchTerms ?? [fields.companyName ?? '']
         const checks = await Promise.all([
+          // by phone
           fields.phone ? contactSearchAdvanced({ query: fields.phone }) : Promise.resolve({ contacts: [] as GHLContact[] }),
-          contactSearchAdvanced({ searchTerms: normalizeContactQuery(fields.companyName ?? '').searchTerms ?? [fields.companyName ?? ''], cityFilter: fields.city ?? undefined }),
+          // by company name + optional city
+          contactSearchAdvanced({ searchTerms: companyTerms, cityFilter: fields.city ?? undefined }),
+          // by first name + company name combined (catches "Jesse van WeTickets")
+          fields.firstName ? contactSearchAdvanced({ searchTerms: [fields.firstName, ...companyTerms] }) : Promise.resolve({ contacts: [] as GHLContact[] }),
+          // by email
+          fields.email ? contactSearchAdvanced({ query: fields.email }) : Promise.resolve({ contacts: [] as GHLContact[] }),
         ])
 
-        const dupes = [...(checks[0].contacts ?? []), ...(checks[1].contacts ?? [])]
+        const dupes = [...(checks[0].contacts ?? []), ...(checks[1].contacts ?? []), ...(checks[2].contacts ?? []), ...(checks[3].contacts ?? [])]
         const seen  = new Set<string>()
         const unique = dupes.filter(c => {
           const id = c.id ?? ''

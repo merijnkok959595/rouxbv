@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { resolveOrgId } from '@/lib/auth/resolveOrg'
 import { adminSupabase } from '@/lib/supabase'
 import { logContactEvent } from '@/lib/events/logContactEvent'
+import { contactUpdate as ghlContactUpdate, buildCustomFields } from '@/lib/ghl-client'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -369,6 +370,23 @@ export async function POST(req: Request) {
     config.enrich_webcrawl && website && 'web_crawl',
     config.enrich_maps                && 'google_maps',
   ].filter(Boolean)
+
+  // ── Push label + revenue back to GHL ──────────────────────────────────────
+  const ghlContactId = (currentCustom.ghl_contact_id as string | undefined) ?? null
+  if (ghlContactId && (contactUpdate.label || contactUpdate.revenue != null)) {
+    try {
+      const cf = buildCustomFields({
+        klantLabel:  contactUpdate.label  as 'A'|'B'|'C'|'D' | undefined,
+        klantVolume: contactUpdate.revenue as number | undefined,
+      })
+      if (cf && cf.length > 0) {
+        await ghlContactUpdate(ghlContactId, { customFields: cf })
+        console.log(`[enrich] GHL sync → ${ghlContactId} label=${contactUpdate.label} revenue=${contactUpdate.revenue}`)
+      }
+    } catch (err) {
+      console.warn('[enrich] GHL sync failed (non-fatal):', err)
+    }
+  }
 
   logContactEvent({
     organizationId: orgId,
