@@ -232,7 +232,9 @@ export async function POST(req: Request) {
     const stream  = new ReadableStream({
       async start(controller) {
         try {
-          for await (const event of result.fullStream) {
+          for await (const rawEvent of result.fullStream) {
+            // Cast to loosely typed event to handle SDK type evolution
+            const event = rawEvent as { type: string; textDelta?: string; toolName?: string; result?: unknown }
             if (event.type === 'text-delta') {
               controller.enqueue(encoder.encode(event.textDelta))
             } else if (event.type === 'tool-result' && (event.toolName === 'render_form' || event.toolName === 'render_edit_form')) {

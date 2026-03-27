@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 })
     if (BLOCKED.has(name)) return NextResponse.json({ error: 'Tool not available in voice context' }, { status: 400 })
 
-    const tool = (suusTools as ToolMap)[name]
+    const tool = (suusTools as unknown as ToolMap)[name]
     if (!tool?.execute) return NextResponse.json({ error: `Unknown tool: ${name}` }, { status: 404 })
 
     const result = await tool.execute(args, {

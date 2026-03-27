@@ -238,7 +238,7 @@ export default function FormulierPage() {
       const data = (await res.json()) as { error?: string; id?: string; assigned_to?: string | null }
       if (!res.ok) throw new Error(data.error ?? 'Fout bij opslaan')
       if (!data.id) throw new Error('Server gaf geen contact-id terug')
-      try { localStorage.setItem(SOURCE_STORAGE_KEY, source) } catch { /* ignore */ }
+      try { localStorage.setItem(SOURCE_STORAGE_KEY, beursName) } catch { /* ignore */ }
 
       const { status: formStatus, channel: _ch, ...contactFields } = body
       lateContactRef.current = data.id

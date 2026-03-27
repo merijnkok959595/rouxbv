@@ -79,7 +79,7 @@ const BLOCKED = new Set(['render_form', 'render_edit_form'])
 
 async function executeTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   if (BLOCKED.has(name)) return { error: 'Tool not available in voice context' }
-  const tool = (suusTools as ToolMap)[name]
+  const tool = (suusTools as unknown as ToolMap)[name]
   if (!tool?.execute) return { error: `Unknown tool: ${name}` }
   return tool.execute(args, { toolCallId: '', messages: [], abortSignal: new AbortController().signal })
 }

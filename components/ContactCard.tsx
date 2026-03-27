@@ -1,6 +1,6 @@
 'use client'
 
-import { MapPin, Phone, Plus, Pencil, Eye, User } from 'lucide-react'
+import { MapPin, Phone, Plus, Pencil, Eye, User, Building2 } from 'lucide-react'
 import type { ContactFormPrefilled } from './ContactForm'
 
 // ── ContactFormCard ───────────────────────────────────────────────────────────

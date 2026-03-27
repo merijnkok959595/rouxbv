@@ -17,7 +17,7 @@ interface RawContact {
 export interface RankEntry { naam: string; value: number }
 
 function top3(map: Map<string, number>): RankEntry[] {
-  return [...map.entries()]
+  return Array.from(map.entries())
     .map(([naam, value]) => ({ naam, value }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 3)
