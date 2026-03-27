@@ -37,7 +37,6 @@ type Lead = {
 }
 
 type TeamMember = { id: string; naam: string; color: string | null }
-type Stats      = { total: number; pipeline: number; today: number }
 
 function Bool({ val }: { val: boolean | null }) {
   const on = val === true
@@ -51,9 +50,9 @@ function Bool({ val }: { val: boolean | null }) {
 
 
 function fmtRevenue(v: number): string {
-  if (v >= 1_000_000) return `€ ${(v / 1_000_000).toFixed(1).replace('.', ',')}M`
-  if (v >= 1_000)     return `€ ${Math.round(v / 1_000)}K`
-  return `€ ${v.toLocaleString('nl-NL')}`
+  if (v >= 1_000_000) return `# ${(v / 1_000_000).toFixed(1).replace('.', ',')}M`
+  if (v >= 1_000)     return `# ${Math.round(v / 1_000)}K`
+  return `# ${v.toLocaleString('nl-NL')}`
 }
 
 /** "Ronald Stavast" → "RON STA", "Vincent" → "VIN" */
@@ -67,14 +66,12 @@ export default function LeadsPage() {
   const [leads,          setLeads]          = useState<Lead[] | null>(null)
   const [error,          setError]          = useState<string | null>(null)
   const [loading,        setLoading]        = useState(true)
-  const [stats,          setStats]          = useState<Stats | null>(null)
   const [members,        setMembers]        = useState<TeamMember[]>([])
   const [dateRange,      setDateRange]      = useState<DateRange>(null)
   const [sourceFilter,   setSourceFilter]   = useState<string[] | null>(null)
 
   async function load() {
     setLoading(true); setError(null)
-    fetch('/api/leads/stats').then(r => r.json()).then(d => { if (d.total != null) setStats(d) }).catch(() => {})
     fetch('/api/settings/employees').then(r => r.json()).then(d => { const list = Array.isArray(d) ? d : (d.members ?? []); setMembers(list) }).catch(() => {})
     try {
       const res  = await fetch('/api/leads')
@@ -129,6 +126,13 @@ export default function LeadsPage() {
     return result
   }, [leads, dateRange, sourceFilter])
 
+  const filteredStats = useMemo(() => {
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+    const today    = filtered.filter(l => l.created_at && new Date(l.created_at) >= todayStart).length
+    const pipeline = filtered.reduce((sum, l) => sum + (l.revenue ?? 0), 0)
+    return { total: filtered.length, today, pipeline }
+  }, [filtered])
+
   return (
     <div className="min-h-[calc(100vh-44px)] bg-bg text-primary">
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 pt-4 sm:pt-6 pb-12">
@@ -149,11 +153,11 @@ export default function LeadsPage() {
         </div>
 
         {/* Stats */}
-        {stats && (
+        {!loading && leads !== null && (
           <div className="flex gap-2 sm:gap-2.5 mb-5">
-            <StatTile label="Totaal leads" value={stats.total.toString()} />
-            <StatTile label="Vandaag"      value={stats.today.toString()} />
-            <StatTile label="PIJPLIJN"     value={stats.pipeline > 0 ? fmtRevenue(stats.pipeline) : '—'} wide />
+            <StatTile label="Totaal leads" value={filteredStats.total.toString()} />
+            <StatTile label="Vandaag"      value={filteredStats.today.toString()} />
+            <StatTile label="PIJPLIJN"     value={filteredStats.pipeline > 0 ? fmtRevenue(filteredStats.pipeline) : '—'} wide />
           </div>
         )}
 

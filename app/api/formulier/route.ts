@@ -151,11 +151,16 @@ export async function POST(req: Request) {
         }
 
         if (ghlId) {
-          await adminSupabase()
+          // Read current custom_fields first to avoid overwriting enrichment data
+          const sb2 = adminSupabase()
+          const { data: cur } = await sb2.from('contacts').select('custom_fields').eq('id', contact.id).single()
+          const existingCF = (cur as { custom_fields?: Record<string, unknown> } | null)?.custom_fields ?? {}
+          await sb2
             .from('contacts')
             .update({
               ghl_synced:    true,
               custom_fields: {
+                ...existingCF,
                 intake_notes:   notes       || null,
                 created_by:     created_by  || null,
                 ghl_contact_id: ghlId,

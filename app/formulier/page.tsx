@@ -644,7 +644,7 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
                     style={{ backgroundColor: lm.bg, color: lm.text, border: `1px solid ${lm.border}`, fontFamily: MONO, letterSpacing: '0.08em' }}>
                     {enrich.label}
                   </span>
-                : <span className="text-xs text-muted">wordt bepaald…</span>
+                : <span className="text-xs text-muted">—</span>
             }
           </div>
           {/* Volume */}
@@ -656,7 +656,7 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
                 ? <span className="text-[13px] font-bold text-primary" style={{ fontFamily: MONO }}>
                     {Number(enrich.revenue).toLocaleString('nl-NL')}
                   </span>
-                : <span className="text-xs text-muted">wordt bepaald…</span>
+                : <span className="text-xs text-muted">—</span>
             }
           </div>
         </TwoCol>
