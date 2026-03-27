@@ -446,12 +446,20 @@ export default function SuusPage() {
     stopCallVisualizer()
     clearInactivityTimer()
     realtimeStreamingRef.current = false
+    // Restore audio session so music can resume
+    if ('audioSession' in navigator) {
+      try { (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'auto' } catch { /* unsupported */ }
+    }
     setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false); setMuted(false)
   }
 
   async function toggleCall() {
     if (callingRef.current) { stopCall(); return }
     callingRef.current = true
+    // Tell OS this is a voice call → pauses background music on iOS/Android
+    if ('audioSession' in navigator) {
+      try { (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'play-and-record' } catch { /* unsupported */ }
+    }
     setCalling(true); setCallStatus('connecting')
     try {
       const res  = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, employee_id: activeEmployee?.id }) })
