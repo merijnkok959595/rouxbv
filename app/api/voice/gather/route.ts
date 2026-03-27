@@ -87,7 +87,7 @@ export async function POST(req: Request) {
 
     // Run AI — maxSteps handles multi-tool chains automatically
     const result = await generateText({
-      model:    openai('gpt-4o-mini'),
+      model:    openai('gpt-4.1'),
       system:   conv.systemPrompt,
       messages: conv.messages,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
