@@ -8,7 +8,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const { data, error } = await sb
     .from('contacts')
-    .select('id, label, revenue, assigned_to')
+    .select('id, company_name, label, revenue, assigned_to, source, created_at, custom_fields')
     .eq('id', params.id)
     .eq('organization_id', orgId)
     .single()

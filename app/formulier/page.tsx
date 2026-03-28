@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Briefcase, User, MapPin, Tag, FileText, RotateCcw,
@@ -37,8 +38,9 @@ type TeamMember = { id: string; naam: string; color: string | null; functie?: st
 type Phase = 'idle' | 'saving' | 'enriching' | 'done'
 
 export default function FormulierPage() {
+  const router         = useRouter()
   const formRef        = useRef<HTMLFormElement>(null)
-  const lateContactRef = useRef<string | null>(null) // for background retry
+  const lateContactRef = useRef<string | null>(null)
   const [phase,        setPhase]        = useState<Phase>('idle')
   const [error,        setError]        = useState<string | null>(null)
   const [savedContact, setSavedContact] = useState<SavedContact | null>(null)
@@ -244,48 +246,16 @@ export default function FormulierPage() {
       if (!res.ok) throw new Error(data.error ?? 'Fout bij opslaan')
       if (!data.id) throw new Error('Server gaf geen contact-id terug')
       try { localStorage.setItem(SOURCE_STORAGE_KEY, beursName) } catch { /* ignore */ }
+      try { localStorage.setItem('roux_formulier_creator', aangemeldDoor) } catch { /* ignore */ }
 
-      const { status: formStatus, channel: _ch, ...contactFields } = body
-      lateContactRef.current = data.id
-      setSavedContact({ ...contactFields, id: data.id, assigned_to: data.assigned_to ?? null, contact_type: formStatus || 'lead', opening_hours: openingHours, groothandel, created_by: aangemeldDoor })
-      formRef.current.reset()
-      setAddress(''); setCity(''); setPostcode(''); setCountry('Nederland')
-      setPhoneValue(undefined); setNotes(''); setGroothandel(''); setOpeningHours(null)
-
-      // Enrichment runs inline on the server — check if it came back immediately
-      if (data.label) {
-        setEnrichResult({ label: data.label, revenue: data.revenue ?? null, summary: null })
-        if (data.assigned_to) setSavedContact(prev => prev ? { ...prev, assigned_to: data.assigned_to! } : prev)
-        setPhase('done')
-      } else {
-        // Fallback: poll for a few rounds in case enrichment is still settling
-        setPhase('enriching')
-        try {
-          const contactId = data.id
-          const deadline  = Date.now() + 20_000
-          const intervals = [2000, 3000, 3000, 4000, 4000, 4000]
-          let result: EnrichResult = { label: null, revenue: null, summary: null }
-          let assignedTo: string | null = null
-          for (const wait of intervals) {
-            if (Date.now() >= deadline) break
-            await new Promise(r => setTimeout(r, wait))
-            const pollRes  = await fetch(`/api/contacts/${contactId}`)
-            const pollData = await pollRes.json() as { label?: string | null; revenue?: number | null; assigned_to?: string | null }
-            if (pollData.assigned_to && !assignedTo) {
-              assignedTo = pollData.assigned_to
-              setSavedContact(prev => prev ? { ...prev, assigned_to: assignedTo } : prev)
-            }
-            if (pollData.label) { result = { label: pollData.label, revenue: pollData.revenue ?? null, summary: null }; break }
-          }
-          setEnrichResult(result)
-        } catch { /* ignore */ }
-        setPhase('done')
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Er is iets misgegaan')
+      // Redirect to the result page — it polls for label/routing on its own
+      router.push(`/formulier/klaar?id=${data.id}&company=${encodeURIComponent(body.company)}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Onbekende fout')
       setPhase('idle')
     }
   }
+
 
   const isSubmitting = phase === 'saving' || phase === 'enriching'
   const canSubmit    = !isSubmitting && !loadingTeam
@@ -309,16 +279,8 @@ export default function FormulierPage() {
             </Link>
           </div>
 
-          {/* Success card */}
-          {showResult && savedContact && (
-            <SuccessCard
-              phase={phase} contact={savedContact} enrich={enrichResult}
-              onStartOver={startOver} teamMembers={teamMembers}
-            />
-          )}
-
           {/* Form */}
-          <div className={showResult ? 'hidden' : 'block'}>
+          <div>
             <form
               ref={formRef} onSubmit={handleSubmit}
               className="flex flex-col bg-surface border border-border rounded-xl"
