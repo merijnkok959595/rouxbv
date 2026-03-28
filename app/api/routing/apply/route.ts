@@ -4,6 +4,9 @@ import { resolveOrgId } from '@/lib/auth/resolveOrg'
 import { adminSupabase } from '@/lib/supabase'
 import { logContactEvent } from '@/lib/events/logContactEvent'
 
+export const runtime     = 'nodejs'
+export const maxDuration = 30
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() })
 
 interface ContactInput {

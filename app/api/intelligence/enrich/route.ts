@@ -5,7 +5,8 @@ import { adminSupabase } from '@/lib/supabase'
 import { logContactEvent } from '@/lib/events/logContactEvent'
 import { contactUpdate as ghlContactUpdate, buildCustomFields } from '@/lib/ghl-client'
 
-export const runtime = 'nodejs'
+export const runtime     = 'nodejs'
+export const maxDuration = 60
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() })
 
