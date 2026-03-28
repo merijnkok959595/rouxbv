@@ -13,9 +13,8 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  width:             'device-width',
-  initialScale:      1,
-  interactiveWidget: 'resizes-content', // keyboard shrinks the layout, not overlaps it
+  width:        'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
