@@ -56,17 +56,19 @@ contact_zoek geeft resultaat → gebruik contactId direct voor acties (note, taa
 ### Branch B: NIEUW contact (count = 0)
 contact_zoek geeft niets → zeg: "Ik kan [naam] niet vinden. Wil je dit als nieuw contact aanmaken?"
 Rep zegt ja:
-1. google_zoek_adres([naam], [stad]) — haalt adres, telefoon, website automatisch op
-2. Zeg ALTIJD: "Ik vond [naam] op [adres]. Klopt dat? [google: naam=[naam]|adres=[adres]|stad=[stad]|postcode=[postcode]|tel=[tel]|website=[website]]"
-   — embed de [google: ...] tag letterlijk in je antwoord zodat die in de gespreksgeschiedennis bewaard blijft
-3. Rep bevestigt → contact_create met data uit de [google: ...] tag in de gespreksgeschiedennis
-4. DAARNA pas vragen: "Lead of klant?" — niets anders
+1. google_zoek_adres([naam], [stad]) aanroepen
+2a. Google vindt iets → zeg: "Ik vond [naam] op [adres]. Klopt dat? [google: naam=[naam]|adres=[adres]|stad=[stad]|postcode=[postcode]|tel=[tel]|website=[website]]"
+    — embed de [google: ...] tag letterlijk in je antwoord
+    — Rep bevestigt → contact_create met die data → "Lead of klant?"
+2b. Google vindt NIETS (resultaat bevat "Geen adres gevonden" of "Geen betrouwbaar adres") →
+    DIRECT contact_create aanroepen met companyName + city. GEEN vragen stellen. Zeg daarna: "Lead of klant?"
 
-KRITIEK voor Branch B:
-- NOOIT voornaam/adres/telefoon/postcode vragen — Google regelt dat
-- NOOIT opnieuw contact_zoek — je weet al dat het count=0 is
+ABSOLUTE VERBODEN in Branch B:
+- NOOIT vragen om telefoonnummer, email, adres of andere gegevens — contact_create heeft alleen companyName nodig
+- NOOIT zeggen "ik kan alleen aanmaken als je een telefoonnummer of email hebt" — dat is FOUT
+- NOOIT opnieuw contact_zoek
 - NOOIT spellen vragen
-- Volgorde is ALTIJD: google_zoek_adres → adres bevestigen → contact_create → "Lead of klant?"
+- Als Google niets vindt: DIRECT aanmaken, klaar
 
 ### Overige flows
 - Briefing voor bezoek: contact_zoek → contact_briefing → samenvatten in 3 zinnen
@@ -164,7 +166,7 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'contact_create',
-      description: 'Maak een nieuw contact aan in het CRM. Roep eerst google_zoek_adres aan om adres, telefoon en website automatisch op te halen. Vraag de rep alleen om wat Google niet heeft.',
+      description: 'Maak een nieuw contact aan in het CRM. ALLEEN companyName is verplicht — telefoon, email en adres zijn OPTIONEEL. Vraag NOOIT om telefoon of email als die er niet zijn. Roep google_zoek_adres aan vóór contact_create zodat adres/telefoon automatisch opgezocht worden, maar als Google niets vindt: maak het contact GEWOON aan met alleen companyName en city.',
       parameters: {
         type: 'object',
         properties: {
@@ -335,43 +337,94 @@ function normaliseQuery(q: string): string {
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
   try {
     if (name === 'contact_zoek') {
-      const originalQuery = normaliseQuery(String(args.query ?? ''))
-      const city = String(args.city ?? '')
+      const rawQuery  = normaliseQuery(String(args.query ?? ''))
+      const cityInput = String(args.city ?? '').trim()
+      const gKey      = Deno.env.get('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ?? ''
 
+      // ── helpers ────────────────────────────────────────────────────────────
       const ghlSearch = async (q: string) => {
-        const r = await ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(q)}&limit=5`)
+        const r = await ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(q)}&limit=10`)
         return (r.contacts ?? []) as Array<Record<string, unknown>>
       }
 
+      const ghlSearchAdvanced = async (q: string) => {
+        const r = await ghl('/contacts/search/duplicate', {
+          method: 'POST',
+          body: JSON.stringify({ locationId: GHL_LOC(), name: q }),
+        })
+        return (r.contacts ?? []) as Array<Record<string, unknown>>
+      }
+
+      const dedup = (lists: Array<Record<string, unknown>[]>): Array<Record<string, unknown>> => {
+        const seen = new Set<string>()
+        const out: Array<Record<string, unknown>> = []
+        for (const list of lists) {
+          for (const c of list) {
+            const id = String(c.id ?? '')
+            if (id && !seen.has(id)) { seen.add(id); out.push(c) }
+          }
+        }
+        return out
+      }
+
       const formatContacts = (contacts: Array<Record<string, unknown>>, bron = 'CRM systeem') => {
-        const lines = contacts.map((c, i) => {
-          const cname   = [c.firstName, c.lastName].filter(Boolean).join(' ')
-          const label   = c.companyName ? `${c.companyName}${cname ? ` (${cname})` : ''}` : cname
-          const address = [c.address1, c.postalCode, c.city].filter(Boolean).join(', ')
-          const contact = [c.phone, c.email].filter(Boolean).join(' | ')
-          return `${i + 1}. contact_id="${c.id}" naam="${label}"${address ? ` adres="${address}"` : ''}${contact ? ` contact="${contact}"` : ''}`
+        return JSON.stringify({
+          count:    contacts.length,
+          contacts: contacts.map(c => {
+            const cname = [c.firstName, c.lastName].filter(Boolean).join(' ')
+            const label = c.companyName ? `${c.companyName}${cname ? ` (${cname})` : ''}` : cname
+            return {
+              contact_id: String(c.id ?? ''),
+              naam:       label,
+              bedrijf:    c.companyName ?? null,
+              stad:       c.city        ?? null,
+              telefoon:   c.phone       ?? null,
+              email:      c.email       ?? null,
+              adres:      [c.address1, c.postalCode, c.city].filter(Boolean).join(', ') || null,
+            }
+          }),
+          bron,
+          instructie: contacts.length === 1
+            ? 'Gebruik dit contact_id direct voor vervolgacties.'
+            : contacts.length > 1
+              ? 'Vraag de rep welke optie bedoeld wordt.'
+              : 'Niet gevonden.',
         })
-        return `[BRON: ${bron}]\n` + lines.join('\n') + (contacts.length > 1 ? '\n\nWelke bedoel je?' : '\n\nGebruik het contact_id hierboven voor vervolgacties.')
       }
 
-      // Step 1: exact query
-      let contacts = await ghlSearch(originalQuery)
-      if (contacts.length) {
-        // Filter: keep only contacts where companyName or full name plausibly matches
-        const q = originalQuery.toLowerCase()
-        const relevant = contacts.filter(c => {
-          const co   = String(c.companyName ?? '').toLowerCase()
-          const full = [c.firstName, c.lastName].filter(Boolean).join(' ').toLowerCase()
-          return co.includes(q) || q.includes(co.slice(0, 4)) || full.includes(q)
-        })
-        const toShow = relevant.length ? relevant : contacts
-        return formatContacts(toShow)
-      }
-
-      // Step 2: Google Places Text Search — STT correction + GHL retry
-      const placesQuery = city ? `${originalQuery} ${city}` : originalQuery
+      // ── Step 1: nano parseert query → {bedrijfsnaam, stad} ────────────────
+      interface Parsed { bedrijfsnaam: string; stad: string | null }
+      let parsed: Parsed = { bedrijfsnaam: rawQuery, stad: cityInput || null }
       try {
-        const gKey = Deno.env.get('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ?? ''
+        const parseResp = await openai.chat.completions.create({
+          model: 'gpt-4.1-nano', temperature: 0,
+          response_format: { type: 'json_object' },
+          messages: [{
+            role: 'system',
+            content: `Je parseert een Nederlandse CRM-zoekopdracht (uitgesproken via telefoon) naar JSON.
+Uitvoer: { "bedrijfsnaam": string, "stad": string|null }
+- Spel getallen uit: "drieëndertig"→"33", "vijftien"→"15"
+- Strip beleefdheidswoorden maar bewaar de echte naam
+- Als stad al gegeven: gebruik die, anders extraheer uit query`,
+          }, {
+            role: 'user',
+            content: `Query: "${rawQuery}"${cityInput ? `\nStad (opgegeven): "${cityInput}"` : ''}`,
+          }],
+        })
+        const p = JSON.parse(parseResp.choices[0].message.content ?? '{}') as Partial<Parsed>
+        parsed = {
+          bedrijfsnaam: p.bedrijfsnaam?.trim() || rawQuery,
+          stad:         p.stad?.trim() || cityInput || null,
+        }
+      } catch { /* use rawQuery fallback */ }
+
+      const naam = parsed.bedrijfsnaam
+      const stad = parsed.stad ?? ''
+
+      // ── Step 2: Google Places → naam normaliseren (STT correctie) ─────────
+      let normalizedName = naam
+      try {
+        const searchQ = stad ? `${naam} ${stad}` : naam
         const gRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
           method: 'POST',
           headers: {
@@ -379,11 +432,10 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
             'X-Goog-Api-Key':   gKey,
             'X-Goog-FieldMask': 'places.displayName,places.addressComponents',
           },
-          body: JSON.stringify({ textQuery: placesQuery, languageCode: 'nl', regionCode: 'NL', maxResultCount: 5 }),
+          body: JSON.stringify({ textQuery: searchQ, languageCode: 'nl', regionCode: 'NL', maxResultCount: 5 }),
         }).then(r => r.json()) as { places?: Array<Record<string, unknown>> }
 
         const places = (gRes.places ?? []).slice(0, 5)
-
         if (places.length) {
           const candidates = places.map((p, i) => {
             const n = (p.displayName as { text?: string } | undefined)?.text ?? ''
@@ -393,30 +445,59 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
             return `${i}: ${n}${c ? ` (${c})` : ''}`
           }).join('\n')
 
-          const correction = await openai.chat.completions.create({
+          const matchResp = await openai.chat.completions.create({
             model: 'gpt-4.1-nano', temperature: 0,
             response_format: { type: 'json_object' },
             messages: [
-              { role: 'system', content: 'STT heeft een bedrijfsnaam mogelijk verkeerd getranscribeerd. Kies het meest plausibele Google Places resultaat als correctie. JSON: {"match": true, "index": <n>, "corrected_name": "<naam>"} of {"match": false}' },
-              { role: 'user',   content: `STT zei: "${originalQuery}"\nGoogle Places kandidaten:\n${candidates}` },
+              { role: 'system', content: 'STT heeft een bedrijfsnaam mogelijk verkeerd getranscribeerd. Kies het meest plausibele Google Places resultaat. JSON: {"match": true, "index": <n>, "corrected_name": "<naam>"} of {"match": false}. Wees streng: geef "none" als het een ander type bedrijf of duidelijk ander bedrijf is.' },
+              { role: 'user',   content: `STT zei: "${naam}"\nGoogle kandidaten:\n${candidates}` },
             ],
           })
           let verdict: Record<string, unknown> = { match: false }
-          try { verdict = JSON.parse(correction.choices[0].message.content ?? '{}') } catch { /* ignore */ }
+          try { verdict = JSON.parse(matchResp.choices[0].message.content ?? '{}') } catch { /* ignore */ }
 
           if (verdict.match) {
             const idx = Number(verdict.index ?? 0)
-            const correctedName = String(verdict.corrected_name
+            const corrected = String(verdict.corrected_name
               ?? (places[idx]?.displayName as { text?: string } | undefined)?.text
-              ?? originalQuery)
-            contacts = await ghlSearch(correctedName)
-            if (contacts.length) return formatContacts(contacts, `CRM systeem — naam gecorrigeerd van "${originalQuery}" naar "${correctedName}"`)
+              ?? naam)
+            normalizedName = corrected.trim()
           }
         }
-      } catch { /* Google Places error — fall through to new contact offer */ }
+      } catch { /* Google error — use naam as-is */ }
 
-      // Step 4: nothing found — offer to create new contact
-      return `[BRON: niet gevonden] Geen contact gevonden voor "${originalQuery}". Vraag de rep: "Wil je ${originalQuery} als nieuw contact aanmaken?"`
+      // ── Step 3: GHL zoeken — 4x parallel (query + advanced, normalized + original)
+      const [r1, r2, r3, r4] = await Promise.all([
+        ghlSearch(normalizedName),
+        normalizedName !== naam ? ghlSearch(naam)             : Promise.resolve([]),
+        ghlSearchAdvanced(normalizedName),
+        normalizedName !== naam ? ghlSearchAdvanced(naam)     : Promise.resolve([]),
+      ])
+      let contacts = dedup([r1, r2, r3, r4])
+
+      // City filter if we have a stad
+      if (stad && contacts.length > 0) {
+        const stadLower = stad.toLowerCase()
+        const cityMatched = contacts.filter(c => (String(c.city ?? '')).toLowerCase().includes(stadLower))
+        if (cityMatched.length > 0) contacts = cityMatched
+      }
+
+      if (contacts.length > 0) {
+        const bron = normalizedName !== naam
+          ? `CRM systeem — naam gecorrigeerd van "${naam}" naar "${normalizedName}"`
+          : 'CRM systeem'
+        return formatContacts(contacts, bron)
+      }
+
+      // ── Step 4: niets gevonden → nieuw contact aanbieden ──────────────────
+      return JSON.stringify({
+        count:     0,
+        contacts:  [],
+        bron:      'niet gevonden',
+        naam_gezocht: naam,
+        stad_gezocht: stad || null,
+        instructie: `Zeg: "Ik kan ${naam}${stad ? ` in ${stad}` : ''} niet vinden. Wil je dit als nieuw contact aanmaken?"`,
+      })
     }
 
     if (name === 'contact_briefing') {
@@ -457,9 +538,19 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       if (args.postalCode) body.postalCode = args.postalCode
       if (args.type)       body.type       = args.type
       if (args.source)     body.source     = args.source
-      const res = await ghl('/contacts/', { method: 'POST', body: JSON.stringify(body) })
-      const c   = res.contact ?? res
-      return `Contact aangemaakt: ${c.companyName ?? c.firstName} (ID: ${c.id})`
+      console.log('[contact_create] body:', JSON.stringify(body))
+      try {
+        const res = await ghl('/contacts/', { method: 'POST', body: JSON.stringify(body) })
+        const c   = res.contact ?? res
+        if (!c.id) {
+          console.error('[contact_create] unexpected GHL response:', JSON.stringify(res))
+          return `Fout bij aanmaken: GHL gaf geen ID terug. Probeer opnieuw.`
+        }
+        return `Contact aangemaakt: ${c.companyName ?? c.firstName} (ID: ${c.id})`
+      } catch (err) {
+        console.error('[contact_create] GHL error:', err)
+        throw err
+      }
     }
 
     if (name === 'contact_update') {
@@ -533,7 +624,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       }).then(r => r.json()) as { places?: Array<Record<string, unknown>> }
 
       const places = (gRes.places ?? []).slice(0, 5)
-      if (!places.length) return `[BRON: niet gevonden] Geen adres gevonden voor "${queryStr}". Vraag de gebruiker om naam of stad te verduidelijken.`
+      if (!places.length) return `[BRON: niet gevonden] Geen adres gevonden voor "${queryStr}". Maak het contact aan zonder adres — vraag de gebruiker NIET om naam of adres te verduidelijken.`
 
       // nano picks the best match
       const candidateList = places.map((p, i) => {
@@ -552,7 +643,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 
       let verdict: Record<string, unknown> = { match: false }
       try { verdict = JSON.parse(verifyRes.choices[0].message.content ?? '{}') } catch { /* ignore */ }
-      if (!verdict.match) return `[BRON: niet gevonden] Geen betrouwbaar adres gevonden voor "${queryStr}". Vraag de gebruiker om naam of stad te verduidelijken.`
+      if (!verdict.match) return `[BRON: niet gevonden] Geen betrouwbaar adres gevonden voor "${queryStr}". Maak het contact aan zonder adres — vraag de gebruiker NIET om naam of adres te verduidelijken.`
 
       const p    = places[Number(verdict.index ?? 0)] ?? places[0]
       type AC    = { longText?: string; shortText?: string; types?: string[] }
@@ -738,6 +829,13 @@ async function streamResponse(
 
 // ─── WebSocket handler ────────────────────────────────────────────────────────
 function handleWebSocket(socket: WebSocket) {
+  console.log('[retell-llm] env check:', {
+    hasGhlKey: !!GHL_KEY(),
+    hasGhlLoc: !!GHL_LOC(),
+    hasOrgId:  !!ORG_ID(),
+    ghlLocVal: GHL_LOC(),
+  })
+
   let employee: Record<string, unknown> | null = null
   let contextMessages: OpenAI.Chat.ChatCompletionMessageParam[] = []
   let isWebCall = false
@@ -747,14 +845,24 @@ function handleWebSocket(socket: WebSocket) {
   const sessionContacts: Array<{ contact_id: string; naam: string; raw: string }> = []
 
   function onToolResult(name: string, _args: Record<string, unknown>, result: string) {
-    if (name === 'contact_zoek' && result.includes('contact_id=')) {
-      // Parse all contacts from the result and store in session
-      const matches = [...result.matchAll(/contact_id="([^"]+)"\s+naam="([^"]+)"/g)]
-      for (const m of matches) {
-        const id = m[1], naam = m[2]
-        if (!sessionContacts.find(c => c.contact_id === id)) {
-          sessionContacts.push({ contact_id: id, naam, raw: result })
-          console.log(`[retell-llm] session contact stored: ${naam} (${id})`)
+    if (name === 'contact_zoek') {
+      try {
+        const parsed = JSON.parse(result) as { contacts?: Array<{ contact_id: string; naam: string }> }
+        for (const c of parsed.contacts ?? []) {
+          if (c.contact_id && !sessionContacts.find(x => x.contact_id === c.contact_id)) {
+            sessionContacts.push({ contact_id: c.contact_id, naam: c.naam, raw: result })
+            console.log(`[retell-llm] session contact stored: ${c.naam} (${c.contact_id})`)
+          }
+        }
+      } catch {
+        // Legacy string fallback
+        const matches = [...result.matchAll(/contact_id="([^"]+)"\s+naam="([^"]+)"/g)]
+        for (const m of matches) {
+          const id = m[1], naam = m[2]
+          if (!sessionContacts.find(c => c.contact_id === id)) {
+            sessionContacts.push({ contact_id: id, naam, raw: result })
+            console.log(`[retell-llm] session contact stored (legacy): ${naam} (${id})`)
+          }
         }
       }
     }

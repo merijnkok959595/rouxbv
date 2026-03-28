@@ -89,62 +89,41 @@ Return ONLY valid JSON.`,
   }
 }
 
-/** Google Maps enrichment via Outscraper API, with GPT fallback */
+/** Google Maps enrichment via Google Places API (New) */
 async function enrichViaMaps(company: string, city: string): Promise<Record<string, unknown>> {
-  const outscraperKey = process.env.OUTSCRAPER_API_KEY
-
-  if (outscraperKey) {
+  const gKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+  if (gKey) {
     try {
-      const query = encodeURIComponent(`${company} ${city}`)
-      const res   = await fetch(
-        `https://api.app.outscraper.com/maps/search-v3?query=${query}&limit=1&language=nl&async=false`,
-        { headers: { 'X-API-KEY': outscraperKey } },
-      )
-      if (!res.ok) throw new Error(`Outscraper HTTP ${res.status}`)
-      const json  = await res.json()
-      const place = json?.data?.[0]?.[0] ?? json?.data?.[0] ?? null
+      const query = `${company} ${city}`
+      const res   = await fetch('https://places.googleapis.com/v1/places:searchText', {
+        method: 'POST',
+        headers: {
+          'Content-Type':     'application/json',
+          'X-Goog-Api-Key':   gKey,
+          'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.regularOpeningHours,places.rating,places.userRatingCount,places.primaryType,places.googleMapsUri',
+        },
+        body: JSON.stringify({ textQuery: query, languageCode: 'nl', regionCode: 'NL', maxResultCount: 1 }),
+      })
+      if (!res.ok) throw new Error(`Google Places HTTP ${res.status}`)
+      const json  = await res.json() as { places?: Array<Record<string, unknown>> }
+      const place = json.places?.[0] ?? null
       if (!place) throw new Error('No results')
+      const hours = ((place.regularOpeningHours as { weekdayDescriptions?: string[] } | undefined)?.weekdayDescriptions ?? []).join(', ') || null
       return {
-        address:        place.full_address ?? place.address ?? null,
-        phone:          place.phone        ?? null,
-        opening_hours:  place.working_hours ?? place.opening_hours ?? null,
-        rating:         place.rating        ?? null,
-        review_count:   place.reviews       ?? null,
-        place_category: place.type          ?? null,
-        maps_url:       place.url           ?? null,
+        address:        place.formattedAddress ?? null,
+        phone:          place.internationalPhoneNumber ?? null,
+        opening_hours:  hours,
+        rating:         place.rating ?? null,
+        review_count:   place.userRatingCount ?? null,
+        place_category: place.primaryType ?? null,
+        maps_url:       place.googleMapsUri ?? null,
       }
     } catch (err) {
-      console.warn('[enrich/maps] Outscraper error, GPT fallback:', err)
+      console.warn('[enrich/maps] Google Places error:', err)
     }
   }
 
-  const resp = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: `You are a business data assistant. Return a JSON object for this company:
-{
-  "address": string | null,
-  "phone": string | null,
-  "opening_hours": string | null,
-  "rating": number | null,
-  "review_count": number | null,
-  "place_category": string | null,
-  "maps_url": string | null
-}
-Return ONLY valid JSON.`,
-      },
-      { role: 'user', content: `Company: ${company}, City: ${city}` },
-    ],
-  })
-  try {
-    const text  = resp.choices[0]?.message?.content ?? '{}'
-    const clean = text.replace(/```json\n?|```/g, '').trim()
-    return JSON.parse(clean)
-  } catch {
-    return {}
-  }
+  return {}
 }
 
 /**

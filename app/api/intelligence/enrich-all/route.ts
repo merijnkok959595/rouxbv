@@ -25,7 +25,7 @@ export async function POST() {
   let scored = 0
   const errors: string[] = []
 
-  // Run in batches of CONCURRENCY to avoid hammering OpenAI + Outscraper
+  // Run in batches of CONCURRENCY to avoid hammering OpenAI + Google Places
   for (let i = 0; i < contacts.length; i += CONCURRENCY) {
     const batch = contacts.slice(i, i + CONCURRENCY)
     const results = await Promise.allSettled(

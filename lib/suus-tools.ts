@@ -233,20 +233,11 @@ Uitvoer: { "bedrijfsnaam": string, "persoonsnaam": string|null, "stad": string|n
       let   googleSource    = false
       let   googleAdres: Record<string, string> = {}
 
-      // ── Step 2: Outscraper + Google Places parallel (alleen voor bedrijven) ─
+      // ── Step 2: Google Places only (naam normaliseren + adres prefill) ──────
       if (parsed.zoektype === 'bedrijf') {
         try {
-          const osUrl = `https://api.outscraper.cloud/google-maps-search?query=${encodeURIComponent(searchQuery)}&limit=5&async=false`
+          const googleRes = await withTimeout(googleZoekAdres(searchQuery), 6000, { found: false })
 
-          const [osRes, googleRes] = await Promise.all([
-            withTimeout(
-              fetch(osUrl, { headers: { 'X-API-KEY': process.env.OUTSCRAPER_API_KEY ?? '' } }).then(r => r.json()),
-              6000, { data: [[]] }
-            ),
-            withTimeout(googleZoekAdres(searchQuery), 6000, { found: false }),
-          ])
-
-          // Cache full address data from Google Places for use in render_form
           const gr = googleRes as { found?: boolean; name?: string; address1?: string; postalCode?: string; city?: string; phone?: string; website?: string; openingHours?: string }
           if (gr.found) {
             if (gr.name)         googleAdres.companyName  = gr.name
@@ -256,48 +247,30 @@ Uitvoer: { "bedrijfsnaam": string, "persoonsnaam": string|null, "stad": string|n
             if (gr.phone)        googleAdres.phone        = gr.phone
             if (gr.website)      googleAdres.website      = gr.website
             if (gr.openingHours) googleAdres.openingHours = gr.openingHours
-          }
 
-          type Candidate = { name: string; city?: string }
-          const candidates: Candidate[] = []
-          const seenNames = new Set<string>()
-
-          for (const p of (((osRes.data ?? [[]])[0] ?? []).slice(0, 5) as Array<Record<string, unknown>>)) {
-            const n = String(p.name ?? '').trim()
-            if (n && !seenNames.has(n.toLowerCase())) { seenNames.add(n.toLowerCase()); candidates.push({ name: n, city: String(p.city ?? '') }) }
-          }
-          if (gr.found && gr.name) {
-            const n = gr.name.trim()
-            if (!seenNames.has(n.toLowerCase())) { seenNames.add(n.toLowerCase()); candidates.push({ name: n, city: stad }) }
-          }
-
-          if (candidates.length) {
-            // ── Step 3: LLM pick best match — strict ──────────────────────
-            const candidateList = candidates.map((c, i) => `${i}: ${c.name}${c.city ? ` (${c.city})` : ''}`).join('\n')
+            // ── Step 3: nano picks if the Google name matches the query ─────
+            const candidateList = `0: ${gr.name}${gr.city ? ` (${gr.city})` : ''}`
             const matchResp = await oai.chat.completions.create({
-              model: 'gpt-4.1-mini',
+              model: 'gpt-4.1-nano',
               temperature: 0,
               messages: [{
                 role: 'system',
-                content: `Je bepaalt of een Google Maps kandidaat hetzelfde bedrijf is als de zoekopdracht.
+                content: `Je bepaalt of een Google Maps resultaat hetzelfde bedrijf is als de zoekopdracht.
 Regels:
-- Geef het cijfer ALLEEN als de naam duidelijk hetzelfde bedrijf is (zelfde naam, zelfde type).
-- Geef "none" als: de naam lijkt puur toevallig op een ander bedrijf, het een ander type bedrijf is (bijv. cosmeticamerk vs. restaurant), of je twijfelt.
-- Voorbeelden van "none": "NARS Cosmetics" voor zoekopdracht "Nars van 't Hemelrijck", "Venster op de Wereld" voor "Venster 33".
-Geef ALLEEN het cijfer of "none". Niets anders.`,
+- Geef "0" ALLEEN als de naam duidelijk hetzelfde bedrijf is (zelfde naam, zelfde type).
+- Geef "none" als: naam lijkt op een ander bedrijf, ander type (bijv. cosmeticamerk vs. restaurant), of je twijfelt.
+- Voorbeelden van "none": "NARS Cosmetics" voor "Nars van 't Hemelrijck", "Venster op de Wereld" voor "Venster 33".
+Geef ALLEEN "0" of "none". Niets anders.`,
               }, {
                 role: 'user',
-                content: `Zoekopdracht: "${searchQuery}"\n\nKandidaten:\n${candidateList}`,
+                content: `Zoekopdracht: "${searchQuery}"\n\nKandidaat:\n${candidateList}`,
               }],
             })
             const choice = matchResp.choices[0].message.content?.trim() ?? 'none'
-            if (choice !== 'none') {
-              const idx = parseInt(choice)
-              if (!isNaN(idx) && candidates[idx]) {
-                normalizedName = candidates[idx].name
-                googleSource   = true
-                console.log(`[contact_zoek] google normalized: "${naam}" → "${normalizedName}"`)
-              }
+            if (choice === '0' && gr.name) {
+              normalizedName = gr.name.trim()
+              googleSource   = true
+              console.log(`[contact_zoek] google normalized: "${naam}" → "${normalizedName}"`)
             }
           }
         } catch (err) {
@@ -615,7 +588,7 @@ Retourneert { action: "render_form", ... } — de frontend rendert direct een be
   }),
 
   google_zoek_adres: tool({
-    description: 'Zoek het adres, telefoonnummer en openingstijden van een bedrijf via Google Places. Aanroepen voor contact aanmaken.',
+    description: 'Zoek het adres, telefoonnummer en openingstijden van een bedrijf via Google Places. NIET aanroepen voor nieuw contact aanmaken — render_form doet de Google lookup intern. Alleen aanroepen als de gebruiker EXPLICIET vraagt naar het adres of telefoonnummer van een bedrijf buiten een aanmaakflow.',
     parameters: z.object({
       query: z.string().describe('Bedrijfsnaam plus stad, bijv: Bakkerij Janssen Alkmaar'),
     }),

@@ -150,7 +150,7 @@ export default function QualifyPage() {
             <div className="border-b border-border">
               <Toggle value={config.enrich_webcrawl ?? true} onChange={v => save({ enrich_webcrawl: v })} label="Website crawl" sub="Jina AI leest de bedrijfswebsite uit voor concept, capaciteit en menu" />
             </div>
-            <Toggle value={config.enrich_maps ?? false} onChange={v => save({ enrich_maps: v })} label="Google Maps" sub="Haalt adres, openingstijden, rating en reviewcount op via Outscraper" />
+            <Toggle value={config.enrich_maps ?? false} onChange={v => save({ enrich_maps: v })} label="Google Maps" sub="Haalt adres, openingstijden, rating en reviewcount op via Google Places" />
           </div>
         </Card>
 
