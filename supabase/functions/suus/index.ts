@@ -1,15 +1,9 @@
 /**
  * Supabase Edge Function: suus
  *
- * Handles two modes, auto-detected by request shape:
- *
- *  1. Regular SUUS chat (from Next.js proxy or direct)
- *     Body: { message: string, session_id: string, image_url?: string, organization_id?: string }
- *     Returns: streaming text/plain
- *
- *  2. Retell Custom LLM webhook (voice calls)
- *     Body: Retell's { interaction_type, transcript, call, response_id }
- *     Returns: newline-delimited JSON in Retell's protocol
+ * SUUS chat handler (from Next.js proxy or direct)
+ * Body: { message: string, session_id: string, image_url?: string, organization_id?: string }
+ * Returns: streaming text/plain
  *
  * Deploy: supabase functions deploy suus
  * Set env: OPENAI_API_KEY, DEFAULT_ORGANIZATION_ID
@@ -36,12 +30,6 @@ Je helpt sales reps met hun CRM: contacten opzoeken, aanmaken, notities toevoege
 Je kunt ook afbeeldingen analyseren die worden gedeeld.
 Antwoord altijd in het Nederlands. Warm, direct en professioneel.
 Gebruik tools zodra de gebruiker vraagt om actie. Bevestig altijd wat je gedaan hebt.`
-
-const VOICE_SYSTEM = `Je bent SUUS, de AI telefoon-assistent van ROUX BV.
-Je spreekt met een sales rep. Help hen snel en bondig via spraak.
-Gebruik korte, heldere zinnen — dit is een telefoongesprek.
-Je hebt toegang tot het CRM: contacten opzoeken, aanmaken, notities, statistieken.
-Altijd Nederlands.`
 
 // ─── Tool schemas ─────────────────────────────────────────────────────────────
 const TOOL_SCHEMAS = [
@@ -302,65 +290,8 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json()
-    const orgId = body.call?.metadata?.org_id ?? body.organization_id ?? ORG_ID()
+    const orgId = body.organization_id ?? ORG_ID()
 
-    // ── MODE 2: Retell LLM webhook ──────────────────────────────────────────
-    if (body.interaction_type !== undefined) {
-      const responseId = body.response_id ?? 0
-
-      if (body.interaction_type === 'update_only') {
-        return new Response(
-          JSON.stringify({ response_type: 'response', response_id: responseId, content: '', content_complete: true }) + '\n',
-          { headers: { ...cors, 'Content-Type': 'application/json' } },
-        )
-      }
-
-      // Convert Retell transcript: Retell uses "agent" role, OpenAI uses "assistant"
-      const messages: OAIMessage[] = [
-        { role: 'system', content: VOICE_SYSTEM },
-        // deno-lint-ignore no-explicit-any
-        ...(body.transcript ?? []).map((m: any) => ({
-          role:    m.role === 'agent' ? 'assistant' : 'user',
-          content: m.content ?? '',
-        })),
-      ]
-
-      const encoder = new TextEncoder()
-
-      const stream = new ReadableStream({
-        async start(controller) {
-          try {
-            for await (const token of agentLoop(messages, orgId)) {
-              const chunk = JSON.stringify({
-                response_type: 'response', response_id: responseId,
-                content: token, content_complete: false,
-              })
-              controller.enqueue(encoder.encode(chunk + '\n'))
-            }
-            const done = JSON.stringify({
-              response_type: 'response', response_id: responseId,
-              content: '', content_complete: true,
-            })
-            controller.enqueue(encoder.encode(done + '\n'))
-          } catch (err) {
-            console.error('[suus/retell]', err)
-            const errChunk = JSON.stringify({
-              response_type: 'response', response_id: responseId,
-              content: 'Er ging iets mis.', content_complete: true,
-            })
-            controller.enqueue(encoder.encode(errChunk + '\n'))
-          } finally {
-            controller.close()
-          }
-        },
-      })
-
-      return new Response(stream, {
-        headers: { ...cors, 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked', 'Cache-Control': 'no-cache' },
-      })
-    }
-
-    // ── MODE 1: Regular chat ────────────────────────────────────────────────
     const { message, session_id, image_url } = body
     if (!message || !session_id) return new Response('Missing message or session_id', { status: 400, headers: cors })
 
