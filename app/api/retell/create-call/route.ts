@@ -23,6 +23,12 @@ export async function POST(req: Request) {
         ghl_user_id:   ghl_user_id   ?? '',
         calendar_id:   calendar_id   ?? '',
       },
+      // Dynamic variables injected into the native Retell LLM prompt/begin_message
+      retell_llm_dynamic_variables: {
+        caller_name:  employee_naam ?? '',
+        ghl_user_id:  ghl_user_id   ?? '',
+        calendar_id:  calendar_id   ?? '',
+      },
     })
 
     return Response.json({
