@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { adminSupabase } from '@/lib/supabase'
+import { requireOrgId, isValidOrgId } from '@/lib/auth/resolveOrg'
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const runtime = 'nodejs'
 
 export async function GET() {
   try {
     const sb    = adminSupabase()
-    const orgId = process.env.ORGANIZATION_ID?.trim()
-    if (!orgId || !UUID_RE.test(orgId)) return NextResponse.json({ error: 'invalid org' }, { status: 400 })
+    const orgId = requireOrgId()
+    if (!isValidOrgId(orgId)) return NextResponse.json({ error: orgId }, { status: 400 })
 
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)

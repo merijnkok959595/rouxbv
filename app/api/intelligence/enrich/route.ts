@@ -5,20 +5,9 @@ import { adminSupabase } from '@/lib/supabase'
 import { logContactEvent } from '@/lib/events/logContactEvent'
 import { contactUpdate as ghlContactUpdate, buildCustomFields } from '@/lib/ghl-client'
 
+export const runtime = 'nodejs'
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-const SB_URL = () => process.env.NEXT_PUBLIC_SUPABASE_URL!.trim()
-const SB_KEY = () => process.env.SUPABASE_SERVICE_ROLE_KEY!.trim()
-
-async function sbGet(path: string) {
-  const res = await fetch(`${SB_URL()}/rest/v1/${path}`, {
-    headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, Accept: 'application/json' },
-    cache: 'no-store',
-  })
-  if (!res.ok) return null
-  const rows = await res.json()
-  return Array.isArray(rows) ? (rows[0] ?? null) : rows
-}
 
 /** Web search enrichment via OpenAI */
 async function enrichViaWebSearch(company: string, city: string, website?: string): Promise<Record<string, unknown>> {
@@ -252,13 +241,14 @@ export async function POST(req: Request) {
 
   const database = adminSupabase()
 
-  const [contactRow, cfg] = await Promise.all([
-    sbGet(`contacts?id=eq.${contact_id}&organization_id=eq.${orgId}&limit=1`),
-    sbGet(`intelligence_config?organization_id=eq.${orgId}&limit=1`),
+  const [{ data: contactRow }, { data: cfgRow }] = await Promise.all([
+    database.from('contacts').select('*').eq('id', contact_id).eq('organization_id', orgId).maybeSingle(),
+    database.from('intelligence_config').select('*').eq('organization_id', orgId).maybeSingle(),
   ])
   const contact = contactRow
 
   if (!contact) return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
+  const cfg = cfgRow
 
   const config = cfg ?? {
     enrich_websearch: true,
@@ -358,12 +348,11 @@ export async function POST(req: Request) {
     if (!isNaN(parsed) && parsed >= 0) contactUpdate.revenue = Math.round(parsed)
   }
 
-  await fetch(`${SB_URL()}/rest/v1/contacts?id=eq.${contact_id}&organization_id=eq.${orgId}`, {
-    method: 'PATCH',
-    headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-    body: JSON.stringify(contactUpdate),
-    cache: 'no-store',
-  })
+  await database
+    .from('contacts')
+    .update(contactUpdate)
+    .eq('id', contact_id)
+    .eq('organization_id', orgId)
 
   const sourcesUsed = [
     config.enrich_websearch           && 'web_search',

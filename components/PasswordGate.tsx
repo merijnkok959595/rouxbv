@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import type { Employee } from '@/lib/employee-context'
 
-const PASSWORD    = 'ROUX2026'
+const PASSWORD    = process.env.NEXT_PUBLIC_APP_PASSWORD ?? 'ROUX2026'
 const KEY_UNLOCK  = 'roux_unlocked'
 const KEY_EMP     = 'roux_active_employee'
 

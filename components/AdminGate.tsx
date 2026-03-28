@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
-const PASSWORD = 'ADMIN123!'
+const PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? 'ADMIN123!'
 const KEY      = 'roux_admin_unlocked'
 
 export default function AdminGate({ children }: { children: React.ReactNode }) {

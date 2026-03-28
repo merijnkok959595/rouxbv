@@ -66,20 +66,22 @@ export default function LeadsPage() {
   const [leads,          setLeads]          = useState<Lead[] | null>(null)
   const [error,          setError]          = useState<string | null>(null)
   const [loading,        setLoading]        = useState(true)
+  const [loadingMore,    setLoadingMore]    = useState(false)
+  const [nextCursor,     setNextCursor]     = useState<string | null>(null)
   const [members,        setMembers]        = useState<TeamMember[]>([])
   const [dateRange,      setDateRange]      = useState<DateRange>(null)
   const [sourceFilter,   setSourceFilter]   = useState<string[] | null>(null)
 
   async function load() {
-    setLoading(true); setError(null)
+    setLoading(true); setError(null); setNextCursor(null)
     fetch('/api/settings/employees').then(r => r.json()).then(d => { const list = Array.isArray(d) ? d : (d.members ?? []); setMembers(list) }).catch(() => {})
     try {
       const res  = await fetch('/api/leads')
-      const data = await res.json()
+      const data = await res.json() as { error?: string; leads?: Lead[]; nextCursor?: string | null }
       if (!res.ok) throw new Error(data.error ?? 'Laden mislukt')
       const list: Lead[] = data.leads ?? []
       setLeads(list)
-      // default: filter op meest recente bron
+      setNextCursor(data.nextCursor ?? null)
       const recentSource = list.find(l => l.source)?.source ?? null
       setSourceFilter(recentSource ? [recentSource] : null)
     } catch (e) {
@@ -87,6 +89,21 @@ export default function LeadsPage() {
       setLeads([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadMore() {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const res  = await fetch(`/api/leads?cursor=${encodeURIComponent(nextCursor)}`)
+      const data = await res.json() as { leads?: Lead[]; nextCursor?: string | null }
+      if (res.ok) {
+        setLeads(prev => [...(prev ?? []), ...(data.leads ?? [])])
+        setNextCursor(data.nextCursor ?? null)
+      }
+    } catch { /* ignore */ } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -273,6 +290,17 @@ export default function LeadsPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {nextCursor && !loading && (
+          <div className="mt-3 flex justify-center">
+            <button
+              onClick={() => void loadMore()} disabled={loadingMore}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold rounded-lg border border-border bg-surface text-primary cursor-pointer disabled:cursor-wait hover:bg-active transition-colors"
+            >
+              {loadingMore ? <><Loader2 size={13} className="animate-spin" /> Laden…</> : 'Meer laden'}
+            </button>
           </div>
         )}
       </div>

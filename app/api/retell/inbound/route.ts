@@ -3,15 +3,38 @@
  * Twilio calls this when +3197010275858 receives a call.
  * We register the call with Retell and return TwiML to connect audio.
  */
+import { validateRequest } from 'twilio'
+
 export const runtime     = 'nodejs'
 export const maxDuration = 10
 
 export async function POST(req: Request) {
   try {
-    const body    = await req.formData()
-    const callSid = String(body.get('CallSid') ?? '')
-    const from    = String(body.get('From')    ?? '')
-    const to      = String(body.get('To')      ?? '')
+    const rawBody = await req.text()
+    const params  = Object.fromEntries(new URLSearchParams(rawBody).entries())
+
+    const host      = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
+    const signature = req.headers.get('x-twilio-signature') ?? ''
+    const webhookUrl = `https://${host}/api/retell/inbound`
+
+    // Validate Twilio signature (skip in local dev / ngrok)
+    const isDev = process.env.NODE_ENV === 'development' || host.includes('localhost') || host.includes('ngrok')
+    if (!isDev) {
+      const isValid = validateRequest(
+        process.env.TWILIO_AUTH_TOKEN ?? '',
+        signature,
+        webhookUrl,
+        params,
+      )
+      if (!isValid) {
+        console.warn(`[retell/inbound] invalid Twilio signature from ${req.headers.get('cf-connecting-ip') ?? 'unknown'}`)
+        return new Response('Forbidden', { status: 403 })
+      }
+    }
+
+    const callSid = params['CallSid'] ?? ''
+    const from    = params['From']    ?? ''
+    const to      = params['To']      ?? ''
 
     console.log(`[retell/inbound] CallSid=${callSid} from=${from} to=${to}`)
 
@@ -43,7 +66,6 @@ export async function POST(req: Request) {
     const registered = await res.json() as { call_id: string }
     console.log(`[retell/inbound] registered call_id=${registered.call_id}`)
 
-    // TwiML: stream audio to Retell via WebSocket Media Streams
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>

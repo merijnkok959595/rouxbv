@@ -2,27 +2,14 @@ import { NextResponse } from 'next/server'
 import { adminSupabase } from '@/lib/supabase'
 import { appBaseUrl } from '@/lib/app-base-url'
 import { contactCreate, contactUpdate, contactSearchAdvanced, buildCustomFields, noteCreate } from '@/lib/ghl-client'
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+import { requireOrgId, isValidOrgId } from '@/lib/auth/resolveOrg'
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
-    const sb = adminSupabase()
-
-    const orgId = process.env.ORGANIZATION_ID?.trim()
-    if (!orgId) {
-      return NextResponse.json({ error: 'ORGANIZATION_ID ontbreekt in .env.local' }, { status: 500 })
-    }
-    if (orgId === 'your-org-uuid-here' || !UUID_RE.test(orgId)) {
-      return NextResponse.json(
-        {
-          error:
-            'ORGANIZATION_ID moet een echte UUID zijn (geen placeholder). In Supabase: SQL Editor → `select id from organizations limit 1;` of Table Editor → organizations → kolom id. Zet die waarde in .env.local en herstart npm run dev.',
-        },
-        { status: 400 },
-      )
-    }
+    const body  = await req.json()
+    const sb    = adminSupabase()
+    const orgId = requireOrgId()
+    if (!isValidOrgId(orgId)) return NextResponse.json({ error: orgId }, { status: 400 })
 
     const {
       company, first_name, last_name, email, phone,

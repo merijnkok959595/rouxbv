@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { adminSupabase } from '@/lib/supabase'
+import { requireOrgId, isValidOrgId } from '@/lib/auth/resolveOrg'
 
 export const runtime = 'nodejs'
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface RawContact {
   label:         string | null
@@ -30,10 +29,8 @@ export async function GET(req: Request) {
     const from     = searchParams.get('from')   // YYYY-MM-DD
     const to       = searchParams.get('to')     // YYYY-MM-DD
 
-    const orgId = process.env.ORGANIZATION_ID?.trim()
-    if (!orgId || orgId === 'your-org-uuid-here' || !UUID_RE.test(orgId)) {
-      return NextResponse.json({ error: 'ORGANIZATION_ID in .env.local moet een geldige UUID zijn' }, { status: 400 })
-    }
+    const orgId = requireOrgId()
+    if (!isValidOrgId(orgId)) return NextResponse.json({ error: orgId }, { status: 400 })
 
     // --- main contacts query (date-filtered) ---
     let q = adminSupabase()

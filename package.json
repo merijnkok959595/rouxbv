@@ -32,7 +32,6 @@
     "retell-sdk": "^5.10.1",
     "tailwind-merge": "^3.5.0",
     "twilio": "^5.13.1",
-    "ws": "^8.20.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
