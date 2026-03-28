@@ -168,10 +168,14 @@ export async function POST(req: Request) {
     const base    = appBaseUrl()
     const payload = { contact_id: contactId, organization_id: orgId }
 
+    const internalSecret = process.env.APP_SECRET?.trim() ?? 'dev-only-change-in-prod'
     const run = (path: string) =>
       fetch(`${base}${path}`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type':      'application/json',
+          'x-internal-secret': internalSecret,
+        },
         body:    JSON.stringify(payload),
         signal:  AbortSignal.timeout(55_000),
       }).catch(e => console.error(`[formulier] ${path} failed:`, e))

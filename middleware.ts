@@ -19,10 +19,17 @@ const PROTECTED = [
   '/api/intelligence',
 ]
 
+const INTERNAL_SECRET = process.env.APP_SECRET?.trim() ?? 'dev-only-change-in-prod'
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const needsAuth = PROTECTED.some(p => pathname.startsWith(p))
   if (!needsAuth) return NextResponse.next()
+
+  // Allow internal server-to-server calls (e.g. formulier → routing/enrich)
+  if (req.headers.get('x-internal-secret') === INTERNAL_SECRET) {
+    return NextResponse.next()
+  }
 
   const token = getSessionToken(req.headers.get('cookie'))
   if (!token || !(await verifySessionToken(token))) {
