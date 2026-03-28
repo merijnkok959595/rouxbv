@@ -15,7 +15,10 @@ export async function POST(req: Request) {
 
     const host      = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? ''
     const signature = req.headers.get('x-twilio-signature') ?? ''
-    const webhookUrl = `https://${host}/api/retell/inbound`
+
+    // Use NEXT_PUBLIC_APP_URL so the URL matches exactly what's configured in Twilio console
+    const appBase    = (process.env.NEXT_PUBLIC_APP_URL ?? `https://${host}`).replace(/\/$/, '')
+    const webhookUrl = `${appBase}/api/retell/inbound`
 
     // Validate Twilio signature (skip in local dev / ngrok)
     const isDev = process.env.NODE_ENV === 'development' || host.includes('localhost') || host.includes('ngrok')
@@ -27,7 +30,7 @@ export async function POST(req: Request) {
         params,
       )
       if (!isValid) {
-        console.warn(`[retell/inbound] invalid Twilio signature from ${req.headers.get('cf-connecting-ip') ?? 'unknown'}`)
+        console.warn(`[retell/inbound] invalid Twilio signature — expected URL: ${webhookUrl}`)
         return new Response('Forbidden', { status: 403 })
       }
     }
