@@ -348,15 +348,20 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 
       // Step 1: exact query
       let contacts = await ghlSearch(originalQuery)
-      if (contacts.length) return formatContacts(contacts)
-
-      // Step 2: prefix fallback (first 4 chars)
-      if (originalQuery.length > 4) {
-        contacts = await ghlSearch(originalQuery.slice(0, 4))
-        if (contacts.length) return formatContacts(contacts, 'CRM systeem — gedeeltelijke naam')
+      if (contacts.length) {
+        // Filter: keep only contacts where companyName or full name plausibly matches
+        const q = originalQuery.toLowerCase()
+        const relevant = contacts.filter(c => {
+          const co   = String(c.companyName ?? '').toLowerCase()
+          const full = [c.firstName, c.lastName].filter(Boolean).join(' ').toLowerCase()
+          return co.includes(q) || q.includes(co.slice(0, 4)) || full.includes(q)
+        })
+        const toShow = relevant.length ? relevant : contacts
+        return formatContacts(toShow)
       }
 
-      // Step 3: Outscraper "did you mean?" — Google Maps fuzzy corrects STT errors
+      // Step 2: Outscraper "did you mean?" — Google Maps fuzzy corrects STT errors
+      // (Prefix fallback removed — too many false positives on person first names)
       const osQuery = city ? `${originalQuery} ${city}` : originalQuery
       try {
         const osRes = await fetch(
@@ -385,7 +390,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
             if (contacts.length) return formatContacts(contacts, `CRM systeem — naam gecorrigeerd van "${originalQuery}" naar "${correctedName}"`)
           }
         }
-      } catch { /* Outscraper error — fall through to spelling request */ }
+      } catch { /* Outscraper error — fall through to new contact offer */ }
 
       // Step 4: nothing found — offer to create new contact
       return `[BRON: niet gevonden] Geen contact gevonden voor "${originalQuery}". Vraag de rep: "Wil je ${originalQuery} als nieuw contact aanmaken?"`
