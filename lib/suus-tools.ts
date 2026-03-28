@@ -66,7 +66,10 @@ function formatContacts(
   if (viaGoogle && correctedName) formatted += `\n_(Spelling gecorrigeerd via Google: "${correctedName}")_`
   if (!viaGoogle && googleHint && mapped.length > 1) formatted += `\n_(Google herkent ook: "${googleHint}")_`
 
-  return { count: mapped.length, contacts: mapped, via_google_correction: viaGoogle, corrected_name: correctedName ?? null, formatted }
+  // For count=1: expose active_contact_id prominently so the LLM always embeds it in its response text
+  const active_contact_id = mapped.length === 1 ? mapped[0].contactId : null
+
+  return { count: mapped.length, contacts: mapped, via_google_correction: viaGoogle, corrected_name: correctedName ?? null, formatted, active_contact_id }
 }
 
 // ─── Pure-TS briefing formatter (no LLM needed) ───────────────────────────────
@@ -123,7 +126,8 @@ export const ghlTools = {
   contact_zoek: tool({
     description: `Zoek een contact op in het CRM. Stuur de ruwe zoekvraag — de tool normaliseert, zoekt via Google en kijkt in GHL.
 Bij telefoon/email: geef die direct mee als rawQuery.
-Bij bedrijfsnaam: geef altijd ook de stad mee. Als de stad ontbreekt: NIET aanroepen, eerst vragen.`,
+Bij bedrijfsnaam: geef altijd ook de stad mee. Als de stad ontbreekt: NIET aanroepen, eerst vragen.
+Als count=1: resultaat bevat active_contact_id — embed dit ALTIJD als [contactId: xxx] in je tekstantwoord zodat het in de chatgeschiedennis staat.`,
     parameters: z.object({
       rawQuery: z.string().describe('Ruwe zoekopdracht zoals de gebruiker het zei, bijv. "nars hemelrijck amsterdam" of "+31612345678"'),
       stad:     z.string().nullish().describe('Plaatsnaam — verplicht bij bedrijfsnaam, weglaten bij telefoon/email'),

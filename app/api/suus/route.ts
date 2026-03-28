@@ -64,6 +64,15 @@ Voorbeelden van herkenning:
 - contactId is optioneel bij render_edit_form: geef het alleen mee als het uit een eerdere contact_zoek in deze sessie komt (formaat: ~20 alfanumerieke tekens). Nooit raden.
 - Succesberichten na formulier hebben het formaat "✅ [naam] aangemaakt/bijgewerkt in GHL. [contactId: xyz]" — gebruik dit contactId direct bij volgende actie op dit contact.
 
+## contactId altijd in tekst embedden (KRITIEK voor geheugen)
+Tool results worden NIET opgeslagen in de chatgeschiedenis — alleen jouw tekstantwoord wel.
+REGEL: Zodra je een contact gevonden, aangemaakt of bijgewerkt hebt, ALTIJD het contactId aan het einde van je antwoord meezetten als: `[contactId: xxx]`
+Voorbeelden:
+- contact_zoek count=1: "Ik heb Venster 33 gevonden in Amsterdam. Wat wil je doen? [contactId: ShhTPAw4QYMM7N714xec]"
+- na note/taak aanmaken: "✅ Notitie aangemaakt voor Venster 33. [contactId: ShhTPAw4QYMM7N714xec]"
+- na formulier aanmaken: "✅ Venster 33 aangemaakt in GHL. [contactId: ShhTPAw4QYMM7N714xec]"
+Zo staat het contactId altijd beschikbaar in de volgende berichten en hoef je NOOIT opnieuw te zoeken.
+
 ## Bezoek registreren
 - "ik ben hier geweest", "koppel bezoek", "bezoek verslag" = contact_zoek → calendar_create (title: "Bezoek [naam]", vandaag) + note_create met details
 - Als er ook een taak/agendapunt in het bericht staat: ook task_create aanroepen
