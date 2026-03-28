@@ -18,7 +18,7 @@ import {
   calendarGetMany, calendarGetFreeSlots, calendarCreateAppointment,
   calendarBlockSlot, calendarGetAppointment, calendarUpdateAppointment,
   googleZoekAdres,
-  type GHLContact, type GHLContactInput,
+  type GHLContact, type GHLContactInput, type GHLTask,
 } from '@/lib/ghl-client'
 
 const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
