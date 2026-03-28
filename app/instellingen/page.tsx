@@ -258,7 +258,8 @@ export default function InstellingenPage() {
                     </button>
                   }
                 />
-                <table className="w-full border-collapse">
+                <div className="overflow-x-auto">
+                <table className="w-full border-collapse min-w-[700px]">
                   <thead><tr>
                     <th className={cn(TH, 'w-8')}></th>
                     <th className={TH}>Naam</th><th className={TH}>Functie</th><th className={TH}>Rayon</th>
@@ -380,6 +381,7 @@ export default function InstellingenPage() {
                     })}
                   </tbody>
                 </table>
+                </div>
 
                 {showAddForm && (
                   <div className="px-4 py-4 border-t border-border bg-bg flex flex-col gap-3">

@@ -3,7 +3,8 @@ import Retell from 'retell-sdk'
 export const runtime     = 'nodejs'
 export const maxDuration = 10
 
-const retell = new Retell({ apiKey: process.env.RETELL_API_KEY! })
+const retell   = new Retell({ apiKey: process.env.RETELL_API_KEY! })
+const AGENT_ID = (process.env.RETELL_AGENT_ID ?? 'agent_bceb5b326a6797ca34e2f5e369').trim()
 
 export async function POST(req: Request) {
   try {
@@ -15,7 +16,7 @@ export async function POST(req: Request) {
     }
 
     const webCall = await retell.call.createWebCall({
-      agent_id: process.env.RETELL_AGENT_ID!.trim(),
+      agent_id: AGENT_ID,
       metadata: {
         source:        'browser',
         employee_id:   employee_id   ?? '',

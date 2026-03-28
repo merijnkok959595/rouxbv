@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         'Content-Type':  'application/json',
       },
       body: JSON.stringify({
-        agent_id:    process.env.RETELL_AGENT_ID,
+        agent_id:    (process.env.RETELL_AGENT_ID ?? 'agent_bceb5b326a6797ca34e2f5e369').trim(),
         from_number: from,
         to_number:   to,
         direction:   'inbound',
