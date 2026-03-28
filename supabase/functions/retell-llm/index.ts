@@ -47,51 +47,49 @@ Zodra rep bedrijf + stad noemt → DIRECT contact_zoek aanroepen. Geen bevestigi
 - Naam zonder stad → vraag "In welke stad?" → dan direct contact_zoek.
 - Naam + stad in één zin → direct contact_zoek.
 
-## Branch A — BESTAAND contact (count ≥ 1)
-contact_zoek geeft resultaat → zeg: "Ik heb [naam] gevonden. Wat wil je doen — een briefing, notitie, taak of afspraak?"
-- count=1: gebruik het contact_id direct. NOOIT bevestiging vragen.
-- count>1: "Ik zie [n] opties: [naam1] of [naam2]. Welke bedoel je?"
-- Embed ALTIJD [contactId: xxx] in je antwoord na count=1 zodat het in de gespreksgeschiedennis staat.
+## Vaste zinnen — gebruik deze EXACT, geen variaties
 
-Acties na vondst:
-- "briefing" → contact_briefing → samenvatten in 3 korte zinnen
-- "notitie" of rep vertelt iets → note_create DIRECT, geen bevestiging
-- "taak" of "terugbellen" → task_create DIRECT, geen bevestiging
-- "afspraak" → calendar_get_free_slot → noem 1 optie → bevestig → calendar_create
+Na contact_zoek count=1:
+→ Zeg: "Ik heb [bedrijfsnaam] gevonden in [stad]. Wil je een briefing, notitie, taak of afspraak?"
+→ Embed [contactId: xxx] letterlijk in je antwoord.
 
-## Branch B — NIEUW contact (count = 0)
-contact_zoek geeft niets → zeg: "Ik kan [naam] niet vinden. Zullen we dit contact aanmaken?"
+Na contact_zoek count>1:
+→ Zeg: "Ik zie [n] opties: [naam1] of [naam2]. Welke bedoel je?"
 
-Rep zegt ja — volgorde ALTIJD zo:
-1. Vraag: "Lead of klant?"
-2. google_zoek_adres([naam], [stad]) aanroepen
-   2a. Google vindt iets → zeg: "Ik vond [naam] op [adres]. Klopt dat? [google: naam=X|adres=X|stad=X|postcode=X|tel=X|website=X]"
-       Rep bevestigt → contact_create met alle Google-data + klantType
-   2b. Google vindt niets → DIRECT contact_create met alleen companyName + city + klantType. Geen vragen.
-3. Na contact_create: "Wil je nog iets toevoegen? Ik kan POS materiaal, kortingsafspraken of groothandel vastleggen."
-   - Rep zegt "nee" of wil niets toevoegen → "Klant aangemaakt! Wil je nog een notitie, taak of afspraak aanmaken?"
-   - Rep noemt extras → contact_update met die velden → "Gedaan! Nog iets?"
+Na contact_zoek count=0:
+→ Zeg: "Ik kan [naam] niet vinden in het systeem. Zullen we dit contact aanmaken?"
 
-ABSOLUTE VERBODEN in Branch B:
-- NOOIT vragen om voornaam, telefoon, email of adres — Google + klantType zijn voldoende
-- NOOIT zeggen "ik kan alleen aanmaken als je een telefoonnummer of email hebt"
-- NOOIT opnieuw contact_zoek
-- NOOIT spellen vragen
+Na "ja" op aanmaken:
+→ Zeg EERST: "Is dit een lead of klant?" — wacht op antwoord
+→ Dan DIRECT google_zoek_adres aanroepen
 
-## Schrijfacties — KRITIEKE REGELS
-note_create en task_create: NOOIT bevestiging vragen — direct uitvoeren.
-contact_create en calendar_create: WEL bevestigen vóór uitvoeren.
+Na google_zoek_adres MET resultaat:
+→ Zeg: "Ik vond [naam] op [adres]. Klopt dat? [google: naam=X|adres=X|stad=X|postcode=X|tel=X|website=X]"
+→ Rep bevestigt → contact_create met Google-data + klantType
 
-Verplichte volgorde voor note/taak in ÉÉN beurt:
-1. contact_id ophalen uit sessiegeheugen of contact_zoek
-2. schrijfactie uitvoeren
-3. Zeg: "Gedaan! [actie] aangemaakt voor [naam]. Nog iets?"
+Na google_zoek_adres ZONDER resultaat (bevat "Geen adres" of "Geen betrouwbaar"):
+→ DIRECT contact_create aanroepen, géén tekst tussendoor
+→ Daarna zeg: "Aangemaakt! Wil je POS-materiaal, kortingsafspraken of groothandel vastleggen?"
 
-## Geheugen — altijd embedden in tekst (KRITIEK)
-Tool results worden NIET bewaard tussen beurten — alleen jouw gesproken tekst wel.
-- Na contact_zoek count=1: embed [contactId: xxx] letterlijk in je antwoord
-- Na google_zoek_adres: embed [google: naam=X|adres=X|stad=X|postcode=X|tel=X|website=X] letterlijk
-- Bij contact_create: gebruik de [google: ...] en [contactId: ...] tags uit de gespreksgeschiedennis`
+Na contact_create:
+→ Zeg: "Wil je meteen een notitie, taak of afspraak toevoegen?"
+
+Na elke schrijfactie (note, taak, afspraak):
+→ Zeg: "Gedaan! Nog iets?"
+
+Bij GHL fout (tool geeft foutmelding terug):
+→ Zeg: "Er is iets misgegaan, probeer het opnieuw."
+
+Bij onbekende vraag (niet CRM-gerelateerd):
+→ Zeg: "Daar kan ik niet bij helpen, maar ik kan een notitie, taak of afspraak aanmaken."
+
+## Regels
+- note_create en task_create: NOOIT bevestiging vragen — direct uitvoeren
+- contact_create: ALTIJD bevestigen vóór aanmaken
+- Voornaam, telefoon, email NOOIT vragen — Google + klantType zijn voldoende
+- Na count=1: contact_id direct gebruiken, embed [contactId: xxx] in antwoord
+- Na google_zoek_adres: embed [google: ...] tag letterlijk in antwoord
+- Bij contact_create: gebruik [google: ...] en [contactId: ...] tags uit gespreksgeschiedennis`
 
 // ─── GHL helpers ──────────────────────────────────────────────────────────────
 async function ghl(path: string, opts: RequestInit = {}) {
@@ -313,6 +311,14 @@ function normaliseQuery(q: string): string {
   return s.trim()
 }
 
+// ─── Timeout helper ───────────────────────────────────────────────────────────
+function withTimeout<T>(promise: Promise<T>, ms = 8000, label = ''): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`Timeout na ${ms}ms${label ? ': ' + label : ''}`)), ms)
+  )
+  return Promise.race([promise, timeout])
+}
+
 // ─── Tool executor ────────────────────────────────────────────────────────────
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
   try {
@@ -323,16 +329,28 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 
       // ── helpers ────────────────────────────────────────────────────────────
       const ghlSearch = async (q: string) => {
-        const r = await ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(q)}&limit=10`)
+        const r = await withTimeout(
+          ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(q)}&limit=10`),
+          6000, 'ghl-query'
+        )
         return (r.contacts ?? []) as Array<Record<string, unknown>>
       }
 
-      const ghlSearchAdvanced = async (q: string) => {
-        const r = await ghl('/contacts/search/duplicate', {
-          method: 'POST',
-          body: JSON.stringify({ locationId: GHL_LOC(), name: q }),
-        })
-        return (r.contacts ?? []) as Array<Record<string, unknown>>
+      // Advanced search — graceful fallback if GHL plan doesn't support it
+      const ghlSearchAdvanced = async (q: string): Promise<Array<Record<string, unknown>>> => {
+        try {
+          const r = await withTimeout(
+            ghl('/contacts/search/duplicate', {
+              method: 'POST',
+              body: JSON.stringify({ locationId: GHL_LOC(), name: q }),
+            }),
+            5000, 'ghl-advanced'
+          )
+          return (r.contacts ?? []) as Array<Record<string, unknown>>
+        } catch (err) {
+          console.warn('[ghlSearchAdvanced] fallback to empty:', err)
+          return []
+        }
       }
 
       const dedup = (lists: Array<Record<string, unknown>[]>): Array<Record<string, unknown>> => {
@@ -405,15 +423,18 @@ Uitvoer: { "bedrijfsnaam": string, "stad": string|null }
       let normalizedName = naam
       try {
         const searchQ = stad ? `${naam} ${stad}` : naam
-        const gRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
-          method: 'POST',
-          headers: {
-            'Content-Type':     'application/json',
-            'X-Goog-Api-Key':   gKey,
-            'X-Goog-FieldMask': 'places.displayName,places.addressComponents',
-          },
-          body: JSON.stringify({ textQuery: searchQ, languageCode: 'nl', regionCode: 'NL', maxResultCount: 5 }),
-        }).then(r => r.json()) as { places?: Array<Record<string, unknown>> }
+        const gRes = await withTimeout(
+          fetch('https://places.googleapis.com/v1/places:searchText', {
+            method: 'POST',
+            headers: {
+              'Content-Type':     'application/json',
+              'X-Goog-Api-Key':   gKey,
+              'X-Goog-FieldMask': 'places.displayName,places.addressComponents',
+            },
+            body: JSON.stringify({ textQuery: searchQ, languageCode: 'nl', regionCode: 'NL', maxResultCount: 5 }),
+          }).then(r => r.json()) as Promise<{ places?: Array<Record<string, unknown>> }>,
+          6000, 'google-places-normalize'
+        )
 
         const places = (gRes.places ?? []).slice(0, 5)
         if (places.length) {
@@ -447,19 +468,27 @@ Uitvoer: { "bedrijfsnaam": string, "stad": string|null }
       } catch { /* Google error — use naam as-is */ }
 
       // ── Step 3: GHL zoeken — 4x parallel (query + advanced, normalized + original)
-      const [r1, r2, r3, r4] = await Promise.all([
-        ghlSearch(normalizedName),
-        normalizedName !== naam ? ghlSearch(naam)             : Promise.resolve([]),
-        ghlSearchAdvanced(normalizedName),
-        normalizedName !== naam ? ghlSearchAdvanced(naam)     : Promise.resolve([]),
-      ])
+      const [r1, r2, r3, r4] = await withTimeout(
+        Promise.all([
+          ghlSearch(normalizedName),
+          normalizedName !== naam ? ghlSearch(naam)         : Promise.resolve([]),
+          ghlSearchAdvanced(normalizedName),
+          normalizedName !== naam ? ghlSearchAdvanced(naam) : Promise.resolve([]),
+        ]),
+        9000, 'ghl-parallel-search'
+      )
       let contacts = dedup([r1, r2, r3, r4])
 
-      // City filter if we have a stad
+      // City filter — lenient: also match on first 4 chars, never filter ALL results away
       if (stad && contacts.length > 0) {
         const stadLower = stad.toLowerCase()
-        const cityMatched = contacts.filter(c => (String(c.city ?? '')).toLowerCase().includes(stadLower))
+        const cityMatched = contacts.filter(c => {
+          const cCity = String(c.city ?? '').toLowerCase()
+          return cCity.includes(stadLower) ||
+            stadLower.includes(cCity.slice(0, 4))  // 's-Hertogenbosch vs Den Bosch
+        })
         if (cityMatched.length > 0) contacts = cityMatched
+        // else: geen filter — geef alle resultaten terug
       }
 
       if (contacts.length > 0) {
@@ -505,8 +534,13 @@ Uitvoer: { "bedrijfsnaam": string, "stad": string|null }
     }
 
     if (name === 'contact_create') {
+      const locId = GHL_LOC()
+      if (!locId) {
+        console.error('[contact_create] GHL_LOCATION_ID is leeg!')
+        return 'Configuratiefout: locatie niet ingesteld. Neem contact op met de beheerder.'
+      }
       const body: Record<string, unknown> = {
-        locationId:  GHL_LOC(),
+        locationId:  locId,
         companyName: args.companyName,
       }
       if (args.firstName)  body.firstName  = args.firstName
@@ -520,16 +554,19 @@ Uitvoer: { "bedrijfsnaam": string, "stad": string|null }
       if (args.source)     body.source     = args.source
       console.log('[contact_create] body:', JSON.stringify(body))
       try {
-        const res = await ghl('/contacts/', { method: 'POST', body: JSON.stringify(body) })
-        const c   = res.contact ?? res
+        const res = await withTimeout(
+          ghl('/contacts/', { method: 'POST', body: JSON.stringify(body) }),
+          8000, 'contact_create'
+        )
+        const c = res.contact ?? res
         if (!c.id) {
           console.error('[contact_create] unexpected GHL response:', JSON.stringify(res))
-          return `Fout bij aanmaken: GHL gaf geen ID terug. Probeer opnieuw.`
+          return 'Er is iets misgegaan, probeer het opnieuw.'
         }
         return `Contact aangemaakt: ${c.companyName ?? c.firstName} (ID: ${c.id})`
       } catch (err) {
         console.error('[contact_create] GHL error:', err)
-        throw err
+        return 'Er is iets misgegaan, probeer het opnieuw.'
       }
     }
 
