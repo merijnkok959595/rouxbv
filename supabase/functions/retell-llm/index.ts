@@ -66,7 +66,7 @@ Gebruik calendarId en userId uit de context — nooit vragen.
 - Stuur city mee als parameter bij contact_zoek
 - Bij count=1: direct actie, NOOIT bevestiging vragen
 - Bij count>1: "Ik zie [n]: [naam1] in [stad1] of [naam2] in [stad2] — welke?"
-- Bij count=0: automatische correctie via Google — als dat ook faalt → "Kun je de naam spellen?"
+- Bij count=0: automatische correctie via Google — als dat ook faalt → vraag DIRECT: "Ik kan [naam] niet vinden. Wil je dit als nieuw contact aanmaken?" NOOIT vragen om te spellen.
 - Bij correctie van rep: ALTIJD opnieuw contact_zoek — nooit oude naam gebruiken
 
 ## Schrijfacties — KRITIEKE REGELS
@@ -374,8 +374,8 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         }
       } catch { /* Outscraper error — fall through to spelling request */ }
 
-      // Step 4: nothing found — ask rep to spell
-      return `[BRON: niet gevonden] Geen contact gevonden voor "${originalQuery}". Vraag de rep om de naam te spellen (bijv. "V-E-N-S-T-E-R").`
+      // Step 4: nothing found — offer to create new contact
+      return `[BRON: niet gevonden] Geen contact gevonden voor "${originalQuery}". Vraag de rep: "Wil je ${originalQuery} als nieuw contact aanmaken?"`
     }
 
     if (name === 'contact_briefing') {

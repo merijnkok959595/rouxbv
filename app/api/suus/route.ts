@@ -41,7 +41,7 @@ Voorbeelden van herkenning:
 - Staat er ALLEEN een bedrijfsnaam zonder enige plaatsindicatie → vraag EERST om de stad, daarna direct contact_zoek aanroepen.
 - Bij count=1: direct doorgaan.
 - Bij count>1: zeg alleen "X contacten gevonden, selecteer hieronder:" — webapp toont kaarten.
-- Bij count=0: zeg "Niet gevonden. Wil je [naam] aanmaken?" → wacht op bevestiging → render_form met google_prefill velden als die beschikbaar zijn.
+- Bij count=0: zeg DIRECT "Ik kan [naam] niet vinden in het systeem. Wil je dit als nieuw contact aanmaken?" — NOOIT vragen om de naam te spellen of te herhalen. De naam kan een STT-fout zijn, maar aanmaken kan altijd gecorrigeerd worden in het formulier.
 - NOOIT opnieuw contact_zoek als contactId al in chatgeschiedenis staat.
 - NOOIT contact_zoek als de gebruiker duidelijk een follow-up doet op een contact uit de recente context.
 
