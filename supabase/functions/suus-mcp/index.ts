@@ -399,11 +399,13 @@ Deno.serve(async (req: Request) => {
       case 'tools/call': {
         const params = (body.params ?? {}) as Record<string, unknown>
         const toolName = String(params.name ?? '')
-        // Retell may pass arguments as a pre-serialised JSON string — always parse
-        let rawArgs = params.arguments ?? {}
-        if (typeof rawArgs === 'string') {
-          try { rawArgs = JSON.parse(rawArgs) } catch { rawArgs = {} }
+        // Retell double-serialises arguments — unwrap until we get an object
+        let rawArgs: unknown = params.arguments ?? {}
+        let safety = 0
+        while (typeof rawArgs === 'string' && safety++ < 5) {
+          try { rawArgs = JSON.parse(rawArgs) } catch { rawArgs = {}; break }
         }
+        if (typeof rawArgs !== 'object' || rawArgs === null) rawArgs = {}
         const toolArgs = rawArgs as Record<string, unknown>
         if (!toolName) return err(-32602, 'name is required')
         console.log(`[suus-mcp] tools/call: ${toolName}`, JSON.stringify(toolArgs))
