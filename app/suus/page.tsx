@@ -116,14 +116,17 @@ export default function SuusPage() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
 
-  // Scroll to bottom when keyboard opens on mobile (visualViewport resize)
-  // Skip during active calls — user may be scrolling up to read transcript
+  // Scroll to bottom ONLY when keyboard opens (viewport shrinks >150px)
+  // iOS browser chrome show/hide causes small resizes — ignore those to prevent flicker
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
+    let prevHeight = vv.height
     const onResize = () => {
-      if (calling) return  // don't hijack scroll during voice call
-      bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+      const delta = prevHeight - vv.height
+      prevHeight  = vv.height
+      if (calling) return
+      if (delta > 150) bottomRef.current?.scrollIntoView({ behavior: 'instant' })
     }
     vv.addEventListener('resize', onResize)
     return () => vv.removeEventListener('resize', onResize)
@@ -386,6 +389,16 @@ export default function SuusPage() {
   return (
     <div className="flex flex-col bg-bg overflow-x-hidden" style={{ height: 'calc(100svh - var(--nav-height, 80px))' }}>
 
+      {/* ── Bellen button — fixed top-right, always visible ──────── */}
+      <div className="absolute top-[calc(var(--nav-height,80px)+10px)] right-4 z-20 pointer-events-none">
+        <a
+          href="tel:+3197010275858"
+          className="pointer-events-auto inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-[12px] font-medium rounded-full hover:opacity-85 transition-opacity shadow-sm"
+        >
+          <Phone size={13} strokeWidth={2} />
+          Bellen
+        </a>
+      </div>
 
       {/* ── Contact form modal ───────────────────────────────────── */}
       {modalForm && (
@@ -417,18 +430,7 @@ export default function SuusPage() {
 
       {/* ── Message feed ─────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
-        <div className="max-w-[720px] mx-auto w-full px-4 sm:px-6 pt-14 pb-4 flex flex-col relative">
-
-          {/* Bellen button — top-right, belt het SUUS Twilio nummer */}
-          <div className="absolute top-4 right-4 sm:right-6 z-10">
-            <a
-              href="tel:+3197010275858"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white text-[12px] font-medium rounded-full hover:opacity-85 transition-opacity"
-            >
-              <Phone size={13} strokeWidth={2} />
-              Bellen
-            </a>
-          </div>
+        <div className="max-w-[720px] mx-auto w-full px-4 sm:px-6 pt-6 pb-4 flex flex-col">
 
           {/* Empty state */}
           {msgs.length === 0 && (
@@ -560,7 +562,7 @@ export default function SuusPage() {
 
 
       {/* ── Input bar ────────────────────────────────────────────── */}
-      <div className="px-4 pb-[max(16px,env(safe-area-inset-bottom))] flex-shrink-0">
+      <div className="px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-2 flex-shrink-0 border-t border-border/40">
         <div className="max-w-[760px] mx-auto">
 
           {(dictating || transcribingVoice) && !calling ? (
