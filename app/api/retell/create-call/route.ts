@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     }
 
     const webCall = await retell.call.createWebCall({
-      agent_id: process.env.RETELL_AGENT_ID!,
+      agent_id: process.env.RETELL_AGENT_ID!.trim(),
       metadata: {
         source:        'browser',
         employee_id:   employee_id   ?? '',
