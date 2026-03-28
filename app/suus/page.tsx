@@ -392,7 +392,7 @@ export default function SuusPage() {
 
   /* ── Render ───────────────────────────────────────────────────── */
   return (
-    <div className="flex flex-col bg-bg overflow-x-hidden" style={{ height: 'calc(100svh - var(--nav-height, 80px))' }}>
+    <div className="flex flex-col bg-bg overflow-hidden" style={{ height: 'calc(100svh - var(--nav-height, 80px))' }}>
 
       {/* ── Bellen button — fixed top-right, always visible ──────── */}
       <div className="absolute top-[calc(var(--nav-height,80px)+10px)] right-4 z-20 pointer-events-none">
