@@ -14,6 +14,20 @@ export async function POST(req: Request) {
     const orgId = requireOrgId()
     if (!isValidOrgId(orgId)) return NextResponse.json({ error: orgId }, { status: 400 })
 
+    // Map common country names → ISO 3166-1 alpha-2 for GHL compatibility
+    const COUNTRY_ISO: Record<string, string> = {
+      nederland: 'NL', netherlands: 'NL', 'the netherlands': 'NL',
+      belgie: 'BE', belgië: 'BE', belgium: 'BE',
+      duitsland: 'DE', germany: 'DE', deutschland: 'DE',
+      frankrijk: 'FR', france: 'FR',
+      engeland: 'GB', 'united kingdom': 'GB', england: 'GB',
+    }
+    function toIso(c?: string) {
+      if (!c) return 'NL'
+      const key = c.trim().toLowerCase()
+      return COUNTRY_ISO[key] ?? (c.trim().length === 2 ? c.trim().toUpperCase() : 'NL')
+    }
+
     const {
       company, first_name, last_name, email, phone,
       address, city, postcode, country,
@@ -97,7 +111,7 @@ export async function POST(req: Request) {
         address1:     address     || undefined,
         postalCode:   postcode    || undefined,
         city:         city        || undefined,
-        country:      country?.trim() || 'NL',
+        country:      toIso(country),
         source:       klantSource,
         assignedTo:   assignedToGhlId,
         customFields: buildCustomFields({
