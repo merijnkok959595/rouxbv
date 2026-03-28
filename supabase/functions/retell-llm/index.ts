@@ -51,8 +51,16 @@ Rep zegt "ik was net bij [naam]" → contact_zoek → vraag wat je moet vastlegg
 Standaard: note_create (bezoek) + optioneel task_create (follow-up).
 
 ### Nieuw contact aanmaken
-contact_zoek → google_zoek_adres → bevestig adres → contact_create.
-Vraag stap voor stap: voornaam → bedrijfsnaam → type (Lead/Klant) → adres via Google.
+**Scenario A — contact niet gevonden na zoeken:**
+contact_zoek geeft count=0 → zeg "Ik kan [naam] niet vinden. Wil je dit als nieuw contact aanmaken?"
+Rep zegt ja → google_zoek_adres([naam], [stad]) → bevestig adres in 1 zin → contact_create met alle Google-data.
+Vraag ALLEEN wat Google niet heeft: "Lead of klant?" — verder niets vragen.
+
+**Scenario B — rep vraagt expliciet nieuw contact aan:**
+Rep geeft naam + stad → google_zoek_adres → bevestig → contact_create.
+Als stad ontbreekt: vraag "In welke stad?" — daarna direct google_zoek_adres, GEEN verdere vragen.
+
+**Nooit stap-voor-stap vragen om voornaam, adres, telefoon etc. — Google regelt dat.**
 
 ### Afspraak inplannen
 contact_zoek → calendar_get_free_slot → noem 1 optie → bevestig → calendar_create.
@@ -143,7 +151,7 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'contact_create',
-      description: 'Maak een nieuw contact aan in het CRM.',
+      description: 'Maak een nieuw contact aan in het CRM. Roep eerst google_zoek_adres aan om adres, telefoon en website automatisch op te halen. Vraag de rep alleen om wat Google niet heeft.',
       parameters: {
         type: 'object',
         properties: {
