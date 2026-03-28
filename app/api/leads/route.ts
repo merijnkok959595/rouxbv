@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 
     let q = sb
       .from('contacts')
-      .select('id, company_name, city, type, label, revenue, assigned_to, source, whatsapp, ghl_synced, created_at, custom_fields')
+      .select('id, company_name, first_name, last_name, phone, address1, postcode, city, type, label, revenue, assigned_to, source, whatsapp, ghl_synced, created_at, custom_fields')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(limit)

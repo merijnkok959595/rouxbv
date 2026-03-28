@@ -24,6 +24,11 @@ const TYPE_META: Record<string, { bg: string; color: string; label: string }> = 
 type Lead = {
   id:            string
   company_name:  string | null
+  first_name:    string | null
+  last_name:     string | null
+  phone:         string | null
+  address1:      string | null
+  postcode:      string | null
   city:          string | null
   type:          string | null
   label:         string | null
@@ -33,7 +38,7 @@ type Lead = {
   whatsapp:      boolean | null
   ghl_synced:    boolean | null
   created_at:    string | null
-  custom_fields: { created_by?: string; intake_notes?: string } | null
+  custom_fields: { created_by?: string; intake_notes?: string; groothandel?: string } | null
 }
 
 type TeamMember = { id: string; naam: string; color: string | null }
@@ -203,10 +208,10 @@ export default function LeadsPage() {
           </div>
         ) : (
           <div className="bg-surface border border-border rounded-xl overflow-auto">
-            <table className="w-full border-collapse min-w-[800px]">
+            <table className="w-full border-collapse min-w-[1200px]">
               <thead>
                 <tr>
-                  {['Bedrijf','Plaats','Type','Bron','Label','Volume','Door','Aan','WhatsApp','GHL','Datum'].map(h => (
+                  {['Bedrijf','Contactpersoon','Telefoon','Adres','Groothandel','Notities','Plaats','Type','Bron','Label','Volume','Door','Aan','WhatsApp','GHL','Datum'].map(h => (
                     <th key={h} className="px-3.5 py-2.5 text-left text-xs font-bold text-primary uppercase tracking-[0.05em] border-b border-border whitespace-nowrap">
                       {h}
                     </th>
@@ -216,38 +221,70 @@ export default function LeadsPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-3.5 py-8 text-center text-sm text-muted border-b border-border">
+                    <td colSpan={16} className="px-3.5 py-8 text-center text-sm text-muted border-b border-border">
                       Geen leads gevonden.
                     </td>
                   </tr>
                 ) : filtered.map(row => {
-                  const typeS  = TYPE_META[row.type?.toLowerCase() ?? '']
-                  const ls     = row.label?.toUpperCase() ?? ''
-                  const labelS = LABEL_STYLE[ls]
-                  const member = row.assigned_to ? memberMap[row.assigned_to] : null
-                  const mColor = member?.color ?? '#64748b'
+                  const typeS      = TYPE_META[row.type?.toLowerCase() ?? '']
+                  const ls         = row.label?.toUpperCase() ?? ''
+                  const labelS     = LABEL_STYLE[ls]
+                  const member     = row.assigned_to ? memberMap[row.assigned_to] : null
+                  const mColor     = member?.color ?? '#64748b'
+                  const contactNaam = [row.first_name, row.last_name].filter(Boolean).join(' ')
+                  const adres      = [row.address1, row.postcode].filter(Boolean).join(', ')
+                  const groothandel = row.custom_fields?.groothandel?.trim()
+                  const notities   = row.custom_fields?.intake_notes?.trim()
                   return (
                     <tr key={row.id} className="hover:bg-bg transition-colors">
-                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] font-semibold">{row.company_name ?? '—'}</td>
-                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted">{row.city ?? '—'}</td>
+                      {/* Bedrijf */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] font-semibold whitespace-nowrap">{row.company_name ?? '—'}</td>
+                      {/* Contactpersoon */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted whitespace-nowrap">{contactNaam || '—'}</td>
+                      {/* Telefoon */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] whitespace-nowrap" style={{ fontFamily: MONO }}>
+                        {row.phone
+                          ? <a href={`tel:${row.phone}`} className="text-primary hover:underline">{row.phone}</a>
+                          : <span className="text-muted">—</span>}
+                      </td>
+                      {/* Adres */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted whitespace-nowrap">{adres || '—'}</td>
+                      {/* Groothandel */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] whitespace-nowrap">
+                        {groothandel
+                          ? <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-active border border-border text-primary whitespace-nowrap">{groothandel}</span>
+                          : <span className="text-muted">—</span>}
+                      </td>
+                      {/* Notities */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[12px] text-muted max-w-[180px]">
+                        {notities
+                          ? <span className="block truncate" title={notities}>{notities}</span>
+                          : '—'}
+                      </td>
+                      {/* Plaats */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted whitespace-nowrap">{row.city ?? '—'}</td>
+                      {/* Type */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {typeS
                           ? <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-[0.05em]"
                               style={{ backgroundColor: typeS.bg, color: typeS.color }}>{typeS.label}</span>
                           : <span className="text-muted">—</span>}
                       </td>
+                      {/* Bron */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {row.source
                           ? <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-active border border-border text-primary whitespace-nowrap">{row.source}</span>
                           : <span className="text-muted">—</span>}
                       </td>
+                      {/* Label */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {labelS
                           ? <span className="px-2 py-0.5 rounded text-xs font-bold"
                               style={{ backgroundColor: labelS.bg, color: labelS.color, fontFamily: MONO }}>{ls}</span>
                           : <span className="text-muted">—</span>}
                       </td>
-                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-xs text-muted"
+                      {/* Volume */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-xs text-muted whitespace-nowrap"
                         style={{ fontFamily: MONO }}>
                         {row.revenue != null ? row.revenue.toLocaleString('nl-NL') : '—'}
                       </td>
@@ -277,8 +314,11 @@ export default function LeadsPage() {
                           </span>
                         ) : <span className="text-muted text-xs">—</span>}
                       </td>
+                      {/* WhatsApp */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]"><Bool val={row.whatsapp} /></td>
+                      {/* GHL */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]"><Bool val={row.ghl_synced} /></td>
+                      {/* Datum */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[11px] text-muted whitespace-nowrap"
                         style={{ fontFamily: MONO }}>
                         {row.created_at
