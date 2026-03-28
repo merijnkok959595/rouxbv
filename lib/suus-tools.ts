@@ -74,22 +74,34 @@ function formatContacts(
 
 // ─── Pure-TS briefing formatter (no LLM needed) ───────────────────────────────
 
-function nlDate(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Amsterdam' })
-  } catch { return iso }
+function parseDate(val: string | number | null | undefined): Date | null {
+  if (val == null || val === '') return null
+  // Numeric or numeric string → Unix timestamp (ms if >1e10, else seconds)
+  const num = typeof val === 'number' ? val : /^\d+$/.test(String(val)) ? Number(val) : NaN
+  if (!isNaN(num)) {
+    const ms = num > 1e10 ? num : num * 1000
+    const d = new Date(ms)
+    return isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(val as string)
+  return isNaN(d.getTime()) ? null : d
 }
-function nlTime(iso: string) {
-  try {
-    return new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })
-  } catch { return '' }
+function nlDate(val: string | number | null | undefined): string {
+  const d = parseDate(val)
+  if (!d) return '—'
+  return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Amsterdam' })
+}
+function nlTime(val: string | number | null | undefined): string {
+  const d = parseDate(val)
+  if (!d) return ''
+  return d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })
 }
 
 function formatBriefing(
   contactName: string,
-  notes:        { createdAt: string; body: string }[],
-  tasks:        { dueDate: string; title: string; body?: string; completed: boolean }[],
-  appointments: { startTime: string; title: string }[],
+  notes:        { createdAt: string | number | null | undefined; body: string }[],
+  tasks:        { dueDate: string | number | null | undefined; title: string; body?: string; completed: boolean }[],
+  appointments: { startTime: string | number | null | undefined; title: string }[],
 ) {
   const recentNotes = notes.slice(0, 5).reverse()
   const openTasks   = tasks.filter(t => !t.completed)

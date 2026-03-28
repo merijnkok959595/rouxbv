@@ -57,11 +57,11 @@ Voorbeelden van herkenning:
 - Na contact_briefing GEEN tekst herhalen — zeg alleen één korte intro zin zoals "Hier is de briefing voor [naam]:" en laat de kaart het werk doen.
 
 ## Contact bewerken (webapp)
-- Als gebruiker een contact wil bewerken/updaten → render_edit_form({companyName}).
+- KRITIEK: Zodra gebruiker "bewerken", "wijzigen", "aanpassen", "updaten", "producten toevoegen", "klantkaart openen" zegt → DIRECT render_edit_form aanroepen. NOOIT briefing herhalen.
+- render_edit_form({companyName}) — companyName altijd meegeven. Als contactId al in chatgeschiedennis staat, ook meegeven.
 - render_edit_form zoekt zelf het contact op in GHL en toont het formulier volledig prefilled. De gebruiker past aan en slaat op.
 - NOOIT contact_update direct aanroepen voor een bewerkverzoek in de webapp — gebruik altijd render_edit_form.
 - NOOIT een contactId verzinnen of raden. render_edit_form heeft alleen companyName nodig — de tool regelt de rest.
-- contactId is optioneel bij render_edit_form: geef het alleen mee als het uit een eerdere contact_zoek in deze sessie komt (formaat: ~20 alfanumerieke tekens). Nooit raden.
 - Succesberichten na formulier hebben het formaat "✅ [naam] aangemaakt/bijgewerkt in GHL. [contactId: xyz]" — gebruik dit contactId direct bij volgende actie op dit contact.
 
 ## contactId altijd in tekst embedden (KRITIEK voor geheugen)
