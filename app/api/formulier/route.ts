@@ -137,12 +137,20 @@ export async function POST(req: Request) {
       if (duplicate?.id) {
         await contactUpdate(duplicate.id, ghlData)
         ghlId = duplicate.id
-        console.log(`[formulier] GHL updated contact ${ghlId} (${company})`)
+        console.log(`[formulier] GHL updated existing contact ${ghlId} (${company})`)
       } else {
         const created = await contactCreate(ghlData)
         ghlId = created?.contact?.id ?? null
         if (!ghlId) {
-          console.error(`[formulier] GHL create FAILED for "${company}":`, JSON.stringify(created))
+          // GHL may reject creation if a duplicate exists by phone/email — fall back to update
+          const fallbackId = (created as { meta?: { contactId?: string } })?.meta?.contactId ?? null
+          if (fallbackId) {
+            await contactUpdate(fallbackId, ghlData)
+            ghlId = fallbackId
+            console.log(`[formulier] GHL fallback-updated duplicate contact ${ghlId} (${company})`)
+          } else {
+            console.error(`[formulier] GHL create FAILED for "${company}":`, JSON.stringify(created))
+          }
         } else {
           console.log(`[formulier] GHL created contact ${ghlId} (${company})`)
         }
