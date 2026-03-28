@@ -57,13 +57,37 @@ function useCallTimer(active: boolean) {
   return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`
 }
 
+/* ─── WAV encoder (PCM 16-bit, mono) ────────────────────────────── */
+function encodeWav(decoded: AudioBuffer): ArrayBuffer {
+  const numChannels = 1
+  const sampleRate  = decoded.sampleRate
+  const samples     = decoded.getChannelData(0) // mono: use channel 0
+  const pcm         = new Int16Array(samples.length)
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    pcm[i]  = s < 0 ? s * 0x8000 : s * 0x7fff
+  }
+  const dataLen  = pcm.byteLength
+  const buf      = new ArrayBuffer(44 + dataLen)
+  const view     = new DataView(buf)
+  const write    = (off: number, str: string) => { for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i)) }
+  write(0, 'RIFF'); view.setUint32(4, 36 + dataLen, true)
+  write(8, 'WAVE'); write(12, 'fmt ')
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true)
+  view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * numChannels * 2, true)
+  view.setUint16(32, numChannels * 2, true); view.setUint16(34, 16, true)
+  write(36, 'data'); view.setUint32(40, dataLen, true)
+  new Int16Array(buf, 44).set(pcm)
+  return buf
+}
+
 /* ─── Page ───────────────────────────────────────────────────────── */
 export default function SuusPage() {
   const [msgs,         setMsgs]         = useState<Msg[]>([])
   const [input,        setInput]        = useState('')
   const [sessionId]                     = useState(() => crypto.randomUUID())
   const [calling,      setCalling]      = useState(false)
-  const callingRef     = useRef(false)
   const [callStatus,   setCallStatus]   = useState<'idle' | 'connecting' | 'active'>('idle')
   const [agentTalking, setAgentTalking] = useState(false)
   const [userTalking,  setUserTalking]  = useState(false)
@@ -79,32 +103,9 @@ export default function SuusPage() {
   const dictAudioCtxRef  = useRef<AudioContext | null>(null)
   const dictAnimFrameRef = useRef<number>(0)
   const dictBarsRef      = useRef<(HTMLDivElement | null)[]>([])
-  const ttsAudioRef      = useRef<HTMLAudioElement | null>(null)
-  const inactivityTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const inactivityWarnedRef   = useRef(false)
-
-  const INACTIVITY_WARN_MS = 90_000  // 90s → ask if still there
-  const INACTIVITY_HANG_MS = 30_000  // 30s after warning → hang up
-
-  function resetInactivityTimer() {
-    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
-    inactivityWarnedRef.current = false
-    inactivityTimerRef.current = setTimeout(async () => {
-      if (!callingRef.current) return
-      inactivityWarnedRef.current = true
-      const msg = 'Ben je er nog?'
-      setMsgs(p => [...p, { role: 'ai', text: msg }])
-      await playTTS(msg)
-      inactivityTimerRef.current = setTimeout(() => {
-        if (callingRef.current) stopCall()
-      }, INACTIVITY_HANG_MS)
-    }, INACTIVITY_WARN_MS)
-  }
-
-  function clearInactivityTimer() {
-    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
-    inactivityTimerRef.current = null
-  }
+  // Retell voice client
+  const retellClientRef  = useRef<import('retell-client-js-sdk').RetellWebClient | null>(null)
+  const callMsgStartIdx  = useRef<number>(0)
 
   const { activeEmployee } = useEmployee()
   const imageInputRef    = useRef<HTMLInputElement>(null)
@@ -149,17 +150,16 @@ export default function SuusPage() {
   async function startDictate() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-
-      // Set up real audio visualizer
       const audioCtx = new AudioContext()
       dictAudioCtxRef.current = audioCtx
       const source = audioCtx.createMediaStreamSource(stream)
       const analyser = audioCtx.createAnalyser()
-      analyser.fftSize = 128
-      analyser.smoothingTimeConstant = 0.75
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.6
       source.connect(analyser)
       dictAnalyserRef.current = analyser
       const dataArray = new Uint8Array(analyser.frequencyBinCount)
+      const allChunks: Blob[] = []
 
       function drawBars() {
         if (!dictAnalyserRef.current) return
@@ -175,42 +175,38 @@ export default function SuusPage() {
       }
       drawBars()
 
-      const mr = new MediaRecorder(stream)
-      dictChunksRef.current = []
-      mr.ondataavailable = e => { if (e.data.size > 0) dictChunksRef.current.push(e.data) }
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''
+      const mr = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 128000 })
+      mr.ondataavailable = e => { if (e.data.size > 0) allChunks.push(e.data) }
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
+        const blobType = mimeType || 'audio/webm'
+        const blob     = new Blob(allChunks, { type: blobType })
+        let finalBlob  = blob, fileName = 'recording.webm'
+        try {
+          const arrayBuf = await blob.arrayBuffer()
+          const decoded  = await audioCtx.decodeAudioData(arrayBuf)
+          const wavBuf   = encodeWav(decoded)
+          finalBlob = new Blob([wavBuf], { type: 'audio/wav' })
+          fileName  = 'recording.wav'
+        } catch { /* fallback webm */ }
         stopDictVisualizer()
-        const blob = new Blob(dictChunksRef.current, { type: 'audio/webm' })
         setTranscribingVoice(true)
         try {
           const fd = new FormData()
-          fd.append('audio', blob, 'recording.webm')
+          fd.append('audio', finalBlob, fileName)
           const res  = await fetch('/api/suus/transcribe', { method: 'POST', body: fd })
           const data = await res.json() as { text?: string }
           if (data.text) {
-            if (callingRef.current) {
-              // Voice mode: auto-send transcript
-              setTranscribingVoice(false)
-              setDictating(false)
-              await voiceLoop(data.text)
-            } else {
-              // Text mode: insert into input field
-              setInput(prev => prev ? `${prev} ${data.text}` : data.text!)
-              setTimeout(resizeTextarea, 0)
-              textareaRef.current?.focus()
-            }
-          } else if (callingRef.current) {
-            // No speech detected in voice mode — restart recording
-            setTranscribingVoice(false)
-            setDictating(false)
-            startDictate()
+            setInput(prev => prev ? `${prev} ${data.text}` : data.text!)
+            setTimeout(resizeTextarea, 0)
+            textareaRef.current?.focus()
           }
-        } catch { /* ignore */ } finally {
-          if (!callingRef.current) setTranscribingVoice(false)
-        }
+        } catch { /* ignore */ } finally { setTranscribingVoice(false) }
       }
-      mr.start()
+      mr.start(100)
       dictRecorderRef.current = mr
       setDictating(true)
     } catch { alert('Microfoon toegang vereist.') }
@@ -321,128 +317,62 @@ export default function SuusPage() {
     }
   }, [sessionId, activeEmployee])
 
-  /* ── Voice pipeline (STT → /api/suus → TTS) ──────────────────── */
-
-  async function playTTS(text: string): Promise<void> {
-    if (!text.trim()) return
-    try {
-      const res = await fetch('/api/voice/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.slice(0, 500) }),
-      })
-      if (!res.ok) return
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      return new Promise<void>(resolve => {
-        const audio = new Audio(url)
-        ttsAudioRef.current = audio
-        setAgentTalking(true)
-        audio.onended = () => {
-          setAgentTalking(false)
-          URL.revokeObjectURL(url)
-          ttsAudioRef.current = null
-          resolve()
-        }
-        audio.onerror = () => {
-          setAgentTalking(false)
-          URL.revokeObjectURL(url)
-          ttsAudioRef.current = null
-          resolve()
-        }
-        audio.play().catch(() => { setAgentTalking(false); resolve() })
-      })
-    } catch { /* TTS fail is non-fatal — text is shown in chat */ }
-  }
-
-  async function voiceLoop(transcript: string) {
-    if (!callingRef.current) return
-    setUserTalking(false)
-
-    setMsgs(p => [...p, { role: 'user', text: transcript }])
-    setMsgs(p => [...p, { role: 'ai', text: '', streaming: true }])
-
-    try {
-      const res = await fetch('/api/suus', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ message: transcript, session_id: sessionId, employee_id: activeEmployee?.id }),
-      })
-      if (!res.ok || !res.body) throw new Error('suus fetch failed')
-
-      const reader  = res.body.getReader()
-      const decoder = new TextDecoder()
-      let full = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        full += decoder.decode(value, { stream: true })
-        setMsgs(p => p.map((m, i) => i === p.length - 1 ? { ...m, text: full } : m))
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-      }
-      setMsgs(p => p.map((m, i) => i === p.length - 1 ? { ...m, streaming: false } : m))
-
-      if (!callingRef.current) return
-
-      // Strip __FORM__/__BRIEFING__/__CONTACTS__ markers for TTS
-      const speakText = full.replace(/\n__(?:FORM|BRIEFING|CONTACTS)__:[\s\S]+/, '').trim()
-      if (speakText) await playTTS(speakText)
-
-      if (!callingRef.current) return
-      resetInactivityTimer()
-      // Auto-start next recording turn
-      startDictate()
-
-    } catch (err) {
-      console.error('[voice/loop]', err)
-      setMsgs(p => p.map((m, i) => i === p.length - 1
-        ? { ...m, text: 'Er ging iets mis. Probeer opnieuw.', streaming: false } : m))
-      if (callingRef.current) setTimeout(startDictate, 1000)
-    }
-  }
+  /* ── Retell voice client ──────────────────────────────────────── */
 
   function stopCall() {
-    callingRef.current = false
-    // Stop TTS
-    if (ttsAudioRef.current) { ttsAudioRef.current.pause(); ttsAudioRef.current = null }
-    // Stop recording
-    if (dictRecorderRef.current) {
-      dictRecorderRef.current.ondataavailable = null
-      dictRecorderRef.current.onstop = null
-      dictRecorderRef.current.stop()
-      dictRecorderRef.current = null
-    }
-    stopDictVisualizer()
-    clearInactivityTimer()
-    if ('audioSession' in navigator) {
-      try { (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'auto' } catch { /* unsupported */ }
-    }
+    retellClientRef.current?.stopCall()
     setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false)
-    setDictating(false); setTranscribingVoice(false)
   }
 
   async function toggleCall() {
-    if (callingRef.current) { stopCall(); return }
-    callingRef.current = true
-    if ('audioSession' in navigator) {
-      try { (navigator as unknown as { audioSession: { type: string } }).audioSession.type = 'play-and-record' } catch { /* unsupported */ }
-    }
+    if (calling) { stopCall(); return }
     setCalling(true); setCallStatus('connecting'); setCallError(null)
+    callMsgStartIdx.current = msgs.length
     try {
-      setCallStatus('active')
-      const voornaam = activeEmployee?.naam?.split(' ')[0] ?? 'daar'
-      const greeting = `Hoi ${voornaam}, hoe kan ik je helpen?`
-      setMsgs(p => [...p, { role: 'ai', text: greeting }])
-      await playTTS(greeting)
-      if (!callingRef.current) return
-      resetInactivityTimer()
-      startDictate()
+      const res = await fetch('/api/retell/create-call', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          employee_id:   activeEmployee?.id,
+          employee_naam: activeEmployee?.naam,
+          ghl_user_id:   activeEmployee?.ghl_user_id,
+          calendar_id:   activeEmployee?.calendar_id,
+        }),
+      })
+      if (!res.ok) throw new Error('Kon gesprek niet starten')
+      const { access_token } = await res.json() as { access_token: string }
+
+      const { RetellWebClient } = await import('retell-client-js-sdk')
+      const client = new RetellWebClient()
+      retellClientRef.current = client
+
+      client.on('call_started', () => setCallStatus('active'))
+      client.on('call_ended',   () => { setCalling(false); setCallStatus('idle'); setAgentTalking(false); setUserTalking(false) })
+      client.on('agent_start_talking', () => setAgentTalking(true))
+      client.on('agent_stop_talking',  () => setAgentTalking(false))
+      client.on('update', (update: { transcript?: Array<{ role: string; content: string }> }) => {
+        const transcript = update.transcript ?? []
+        const callMsgs: Msg[] = transcript.map(t => ({
+          role: t.role === 'agent' ? 'ai' : 'user',
+          text: t.content,
+        }))
+        setMsgs(prev => [...prev.slice(0, callMsgStartIdx.current), ...callMsgs])
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      })
+      client.on('error', (err: unknown) => {
+        console.error('[retell]', err)
+        setCallError(String(err))
+        setTimeout(() => setCallError(null), 8000)
+        setCalling(false); setCallStatus('idle')
+      })
+
+      await client.startCall({ accessToken: access_token })
     } catch (err) {
-      console.error('[voice]', err)
+      console.error('[retell/call]', err)
       const msg = err instanceof Error ? err.message : String(err)
       setCallError(msg)
       setTimeout(() => setCallError(null), 8000)
-      if (callingRef.current) stopCall()
+      setCalling(false); setCallStatus('idle')
     }
   }
 
@@ -469,7 +399,7 @@ export default function SuusPage() {
               setModalForm(null)
               setMsgs(p => p.map((msg, j) =>
                 j === modalForm.msgIdx ? { ...msg, formDone: true } : msg
-              ).concat([{ role: 'ai', text: wasEdit ? `✅ ${company} bijgewerkt in GHL.` : `✅ ${company} aangemaakt in GHL.` }]))
+              ).concat([{ role: 'ai', text: successText }]))
               bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
               fetch('/api/suus/save-message', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -629,8 +559,8 @@ export default function SuusPage() {
       <div className="px-4 pb-[max(16px,env(safe-area-inset-bottom))] flex-shrink-0">
         <div className="max-w-[760px] mx-auto">
 
-          {dictating || transcribingVoice ? (
-            /* ── Waveform recording bar ─────────────────────────── */
+          {(dictating || transcribingVoice) && !calling ? (
+            /* ── Waveform bar — text dictation only ─────────────── */
             <div className="flex items-center gap-3 px-4 py-4 border border-border rounded-[28px] bg-surface shadow-[0_2px_12px_rgba(0,0,0,.07),0_0_0_1px_rgba(0,0,0,.03)]">
               {/* Waveform */}
               <div className="flex-1 flex items-center justify-center gap-[3px] h-9 overflow-hidden">
@@ -646,7 +576,6 @@ export default function SuusPage() {
                   />
                 ))}
               </div>
-
               {/* Cancel */}
               <button
                 onClick={cancelDictate}
@@ -655,7 +584,6 @@ export default function SuusPage() {
               >
                 <X size={18} strokeWidth={2} />
               </button>
-
               {/* Confirm / transcribe */}
               <button
                 onClick={stopDictate}
@@ -666,6 +594,7 @@ export default function SuusPage() {
                 <Check size={16} strokeWidth={2.5} />
               </button>
             </div>
+
           ) : (
             /* ── Normal pill ─────────────────────────────────────── */
             <div className="flex items-center gap-3 px-4 py-4 border border-border rounded-[28px] bg-surface shadow-[0_2px_12px_rgba(0,0,0,.07),0_0_0_1px_rgba(0,0,0,.03)] hover:shadow-[0_4px_18px_rgba(0,0,0,.1)] transition-shadow">
@@ -712,7 +641,7 @@ export default function SuusPage() {
 
               {/* Right icons */}
               <div className="flex items-center gap-2 flex-shrink-0">
-                {/* Dictate button — hidden during voice mode */}
+                {/* Dictate button — hidden during call (mic btn in call controls takes over) */}
                 {!calling && (
                   <button
                     onClick={startDictate}
@@ -723,7 +652,7 @@ export default function SuusPage() {
                   </button>
                 )}
 
-                {/* Send / voice call button */}
+                {/* Send / call controls */}
                 {calling ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <VoiceOrb
@@ -731,9 +660,24 @@ export default function SuusPage() {
                       size={28}
                     />
                     <button
-                      onClick={toggleCall}
-                      className="inline-flex items-center gap-1.5 pl-3 pr-4 h-9 bg-[#007AFF] text-white rounded-full hover:opacity-90 transition-opacity flex-shrink-0"
+                      onClick={stopCall}
+                      className="inline-flex items-center gap-2 pl-3 pr-4 h-9 bg-[#007AFF] text-white rounded-full hover:opacity-90 transition-opacity flex-shrink-0"
                     >
+                      <div className="flex items-center gap-[2.5px]">
+                        {[0, 1, 2].map(i => (
+                          <div
+                            key={i}
+                            className={cn(
+                              'w-[3px] rounded-full bg-white transition-[height] duration-75',
+                              (agentTalking || userTalking) && 'animate-wave-agent'
+                            )}
+                            style={{
+                              height: (agentTalking || userTalking) ? `${6 + i * 4}px` : '3px',
+                              animationDelay: `${i * 0.12}s`,
+                            }}
+                          />
+                        ))}
+                      </div>
                       <span className="text-[13px] font-semibold">
                         {callStatus === 'connecting' ? 'Verbinden…' : 'Ophangen'}
                       </span>

@@ -164,12 +164,26 @@ export async function taskList(contactId: string) {
 }
 
 export async function taskCreate(contactId: string, data: {
-  title: string; body?: string; dueDate: string; assignedTo: string
+  title: string; body?: string; dueDate: string; assignedTo?: string
 }) {
-  return ghl<{ task: GHLTask }>(`/contacts/${contactId}/tasks`, {
+  const { assignedTo, ...rest } = data
+
+  // Normalise dueDate to UTC ISO string — GHL is strict about format
+  let dueDate = rest.dueDate
+  try {
+    dueDate = new Date(rest.dueDate).toISOString()
+  } catch { /* keep original */ }
+
+  const payload: Record<string, unknown> = { ...rest, dueDate, completed: false }
+  if (assignedTo) payload.assignedTo = assignedTo
+
+  console.log('[taskCreate] contactId:', contactId, 'payload:', JSON.stringify(payload))
+  const res = await ghl<{ task?: GHLTask; error?: string; message?: string }>(`/contacts/${contactId}/tasks`, {
     method: 'POST',
-    body: JSON.stringify({ ...data, completed: false }),
+    body: JSON.stringify(payload),
   })
+  console.log('[taskCreate] response:', JSON.stringify(res)?.slice(0, 300))
+  return res
 }
 
 export async function taskUpdate(contactId: string, taskId: string, data: {
@@ -312,83 +326,44 @@ export async function googleZoekAdres(query: string) {
   const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim()
   if (!key) return { found: false, error: 'No Google Maps key' }
   try {
-    // Text Search — fetch top 5 candidates
-    const searchRes  = await fetch(
-      `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${key}&language=nl&region=nl`,
-      { cache: 'no-store' },
-    )
-    const searchData = await searchRes.json()
-    const candidates: { place_id: string; name: string; formatted_address: string }[] =
-      (searchData.results ?? []).slice(0, 5)
-    if (candidates.length === 0) return { found: false }
+    // Places API (New) — Text Search
+    const searchRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type':    'application/json',
+        'X-Goog-Api-Key':  key,
+        'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.addressComponents,places.internationalPhoneNumber,places.websiteUri,places.regularOpeningHours',
+      },
+      body: JSON.stringify({ textQuery: query, languageCode: 'nl', regionCode: 'NL', maxResultCount: 5 }),
+      cache: 'no-store',
+    })
+    const searchData = await searchRes.json() as { places?: Array<Record<string, unknown>> }
+    const places = (searchData.places ?? []).slice(0, 5)
+    if (places.length === 0) return { found: false }
 
-    // Pick best match using cheap LLM if multiple results
-    let bestIdx = 0
-    let matchReason: string | null = null
-    if (candidates.length > 1) {
-      try {
-        const openaiKey = process.env.OPENAI_API_KEY?.trim()
-        if (openaiKey) {
-          const list = candidates.map((c, i) => `${i}: ${c.name} — ${c.formatted_address}`).join('\n')
-          const llmRes = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              temperature: 0,
-              max_tokens: 60,
-              messages: [
-                {
-                  role: 'system',
-                  content: 'Return ONLY valid JSON: {"index": <0-4>, "reason": "<one short Dutch sentence why this is the best match>"}. Nothing else.',
-                },
-                { role: 'user', content: `Query: "${query}"\n\nCandidates:\n${list}` },
-              ],
-            }),
-          })
-          const llmData = await llmRes.json() as { choices?: { message?: { content?: string } }[] }
-          const raw = llmData.choices?.[0]?.message?.content?.trim() ?? ''
-          const parsed = JSON.parse(raw) as { index?: number; reason?: string }
-          const idx = parsed.index ?? 0
-          if (!isNaN(idx) && idx >= 0 && idx < candidates.length) {
-            bestIdx = idx
-            matchReason = parsed.reason ?? null
-          }
-        }
-      } catch { /* fallback to index 0 */ }
-    }
+    // Use first result directly — New API orders by relevance
+    const place = places[0]
 
-    const place = candidates[bestIdx]
-
-    // Place Details
-    const detailRes  = await fetch(
-      `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,address_components,geometry,formatted_phone_number,website,opening_hours&key=${key}&language=nl`,
-      { cache: 'no-store' },
-    )
-    const detailData = await detailRes.json()
-    const detail     = detailData.result
-    if (!detail) return { found: false }
-
-    const comps     = detail.address_components ?? []
-    const get       = (type: string) => comps.find((c: { types: string[] }) => c.types.includes(type))?.long_name ?? ''
-    const street    = `${get('route')} ${get('street_number')}`.trim()
-    const postcode  = get('postal_code')
-    const city      = get('locality') || get('administrative_area_level_2')
-    const country   = comps.find((c: { types: string[] }) => c.types.includes('country'))?.short_name ?? 'NL'
-    const hours     = detail.opening_hours?.weekday_text?.join(', ') ?? null
+    type AddressComponent = { longText?: string; shortText?: string; types?: string[] }
+    const comps  = (place.addressComponents ?? []) as AddressComponent[]
+    const get    = (type: string) => comps.find(c => c.types?.includes(type))?.longText ?? ''
+    const street = `${get('route')} ${get('street_number')}`.trim()
+    const city   = get('locality') || get('administrative_area_level_2')
+    const country = comps.find(c => c.types?.includes('country'))?.shortText ?? 'NL'
+    const hours  = ((place.regularOpeningHours as { weekdayDescriptions?: string[] } | undefined)?.weekdayDescriptions ?? []).join(', ') || null
+    const name   = (place.displayName as { text?: string } | undefined)?.text ?? ''
 
     return {
       found:     true,
-      name:      detail.name,
-      formatted: detail.formatted_address,
+      name,
+      formatted: place.formattedAddress as string ?? '',
       address1:  street,
-      postalCode: postcode,
+      postalCode: get('postal_code'),
       city,
       country,
-      phone:        detail.formatted_phone_number ?? null,
-      website:      detail.website ?? null,
+      phone:        place.internationalPhoneNumber as string ?? null,
+      website:      place.websiteUri as string ?? null,
       openingHours: hours,
-      match_reason: matchReason,
     }
   } catch (err) {
     return { found: false, error: String(err) }
@@ -424,8 +399,8 @@ export function buildCustomFields(data: {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface GHLContact {
-  id:          string
-  contactId?:  string
+  id:           string
+  contactId?:   string   // GHL sometimes returns both id and contactId
   firstName?:  string
   lastName?:   string
   email?:      string

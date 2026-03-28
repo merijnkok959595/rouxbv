@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Check, Loader2, MapPin, Phone, Globe, User, Building2, ShoppingCart, Tag } from 'lucide-react'
+import { X, Check, Loader2, MapPin, Phone, Globe, User, Building2, ShoppingCart } from 'lucide-react'
 import { cn }              from '@/lib/utils'
 import { Field, TwoCol, FieldSection } from '@/components/ui/field'
 
@@ -140,7 +140,7 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!companyName.trim()) { setError('Bedrijfsnaam is verplicht'); return }
-    if (!firstName.trim())   { setError('Voornaam is verplicht');     return }
+    if (!klantType)          { setError('Klant type is verplicht');   return }
     setLoading(true); setError(null)
     try {
       const payload = {
@@ -228,20 +228,6 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
         </div>
       )}
 
-      {/* Section: Type */}
-      <FieldSection title="Type" icon={<Tag size={13} />}>
-        <Field label="Klant type" required>
-          <div className="flex gap-1.5">
-            {(['Lead', 'Klant'] as const).map(v => (
-              <ToggleBtn key={v} active={klantType === v}
-                onClick={() => setKlantType(p => p === v ? '' : v)}>
-                {v}
-              </ToggleBtn>
-            ))}
-          </div>
-        </Field>
-      </FieldSection>
-
       {/* Section: Bedrijf */}
       <FieldSection title="Bedrijf" icon={<Building2 size={13} />}>
         <Field label={<>Bedrijfsnaam {prefilled.companyName && !isEdit && <GoogleBadge />}</>} required>
@@ -275,9 +261,9 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
       {/* Section: Contactpersoon */}
       <FieldSection title="Contactpersoon" icon={<User size={13} />}>
         <TwoCol>
-          <Field label="Voornaam" required>
+          <Field label="Voornaam">
             <input value={firstName} onChange={e => setFirstName(e.target.value)}
-              className="field-input" placeholder="Jan" required />
+              className="field-input" placeholder="Jan" />
           </Field>
           <Field label="Achternaam">
             <input value={lastName} onChange={e => setLastName(e.target.value)}
@@ -292,6 +278,16 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
           <input value={phone} onChange={e => setPhone(e.target.value)}
             className={cn('field-input', prefilled.phone && !isEdit && 'bg-active')}
             placeholder="+31612345678" type="tel" />
+        </Field>
+        <Field label="Klant type" required>
+          <div className="flex gap-1.5">
+            {(['Lead', 'Klant'] as const).map(v => (
+              <ToggleBtn key={v} active={klantType === v}
+                onClick={() => setKlantType(p => p === v ? '' : v)}>
+                {v}
+              </ToggleBtn>
+            ))}
+          </div>
         </Field>
       </FieldSection>
 

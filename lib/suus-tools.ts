@@ -8,6 +8,7 @@
 
 import { tool }          from 'ai'
 import { z }             from 'zod'
+import OpenAI            from 'openai'
 import { adminSupabase } from '@/lib/supabase'
 import {
   contactSearch, contactSearchAdvanced, normalizeContactQuery,
@@ -19,6 +20,8 @@ import {
   googleZoekAdres,
   type GHLContact, type GHLContactInput,
 } from '@/lib/ghl-client'
+
+const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const ORG_ID = () => process.env.ORGANIZATION_ID?.trim() ?? ''
 
@@ -118,44 +121,20 @@ ${aptBlock}`
 export const ghlTools = {
 
   contact_zoek: tool({
-    description: 'ALTIJD eerst aanroepen bij elke contactactie. Geef de ruwe gebruikerszin mee — normalisatie, parallelle GHL-zoekopdrachten en Google spellingcorrectie zitten ingebakken.',
+    description: `Zoek een contact op in het CRM. Stuur de ruwe zoekvraag — de tool normaliseert, zoekt via Google en kijkt in GHL.
+Bij telefoon/email: geef die direct mee als rawQuery.
+Bij bedrijfsnaam: geef altijd ook de stad mee. Als de stad ontbreekt: NIET aanroepen, eerst vragen.`,
     parameters: z.object({
-      rawQuery: z.string().describe('De ruwe zoekopdracht precies zoals de gebruiker het zei. Bijv: nars hemelrijk amsterdam, bakker in alkmaar, +31612345678'),
+      rawQuery: z.string().describe('Ruwe zoekopdracht zoals de gebruiker het zei, bijv. "nars hemelrijck amsterdam" of "+31612345678"'),
+      stad:     z.string().nullish().describe('Plaatsnaam — verplicht bij bedrijfsnaam, weglaten bij telefoon/email'),
     }),
-    execute: async ({ rawQuery }) => {
-      const norm = normalizeContactQuery(rawQuery)
+    execute: async ({ rawQuery, stad: stadInput }) => {
 
-      // ── Direct lookup (phone / email) ──────────────────────────────────────
-      if (norm.query) {
-        const res = await contactSearchAdvanced({ query: norm.query })
-        if ((res.contacts ?? []).length > 0) return formatContacts(res.contacts)
-        return { count: 0, contacts: [], formatted: `Geen contact gevonden voor "${norm.query}".` }
-      }
-
-      const { searchTerms = [], cityFilter } = norm
-
-      // Extract possible company name after "van/bij/voor" (e.g. "Ronald van The Winebar" → "The Winebar")
-      const afterVan = rawQuery.match(/\b(?:van|bij|voor|van de|van den|van der)\s+(.+)/i)?.[1]?.trim()
-
-      // Timeout wrapper — prevents slow GHL/Google calls from blocking
-      const withTimeout = <T>(p: Promise<T>, ms = 4000, fallback: T): Promise<T> =>
+      const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
         Promise.race([p, new Promise<T>(r => setTimeout(() => r(fallback), ms))])
 
       const emptyGHL = { contacts: [] as GHLContact[] }
 
-      // ── Step 1: 3-way parallel GHL search (no Google yet) ─────────────────
-      const [simpleRes, advancedRes, cityRes, companyRes] = await Promise.all([
-        withTimeout(contactSearch(rawQuery, 10),                                              4000, emptyGHL),
-        withTimeout(contactSearchAdvanced({ searchTerms }),                                   4000, emptyGHL),
-        cityFilter
-          ? withTimeout(contactSearchAdvanced({ searchTerms, cityFilter }),                   4000, emptyGHL)
-          : Promise.resolve(emptyGHL),
-        afterVan
-          ? withTimeout(contactSearch(afterVan, 10),                                          4000, emptyGHL)
-          : Promise.resolve(emptyGHL),
-      ])
-
-      // Dedupliceer helper
       const dedup = (lists: (GHLContact[] | undefined)[]): GHLContact[] => {
         const seen = new Set<string>()
         const out: GHLContact[] = []
@@ -168,59 +147,188 @@ export const ghlTools = {
         return out
       }
 
-      // ── When city is known: prioritise city-scoped results ─────────────────
-      // Only fall back to non-city results if city search gives 0 hits,
-      // to avoid flooding results from other cities (e.g. "Louis in Oss" when
-      // user asked for "Cocktail Louie in Amsterdam").
-      if (cityFilter) {
-        const cityScoped = dedup([simpleRes.contacts, cityRes.contacts, companyRes.contacts])
-        if (cityScoped.length > 0) return formatContacts(cityScoped)
-        // City search found nothing — retry without city but with full phrase only
-        const phraseOnly = dedup([simpleRes.contacts, companyRes.contacts])
-        if (phraseOnly.length > 0) return formatContacts(phraseOnly)
-        // Last resort: include non-city advancedRes
-        const all = dedup([advancedRes.contacts])
-        if (all.length > 0) return formatContacts(all)
-      } else {
-        const combined = dedup([simpleRes.contacts, advancedRes.contacts, companyRes.contacts])
-        if (combined.length > 0) return formatContacts(combined)
+      // ── Step 1: LLM parse — extract bedrijfsnaam, stad, type ─────────────
+      interface ParsedQuery {
+        bedrijfsnaam: string
+        persoonsnaam:  string | null
+        stad:          string | null
+        zoektype:      'bedrijf' | 'persoon' | 'telefoon' | 'email'
       }
 
-      // ── Step 2: GHL returned 0 → try Google for spelling correction ───────
-      const googleQuery = [...searchTerms, cityFilter].filter(Boolean).join(' ')
-      const googleRes   = await withTimeout(googleZoekAdres(googleQuery), 4000, { found: false })
+      let parsed: ParsedQuery = {
+        bedrijfsnaam: rawQuery,
+        persoonsnaam:  null,
+        stad:          stadInput?.trim() || null,
+        zoektype:      'bedrijf',
+      }
 
-      if (googleRes.found && googleRes.name) {
-        const googleName     = googleRes.name as string
-        const correctedTerms = googleName.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 3)
-        // Also try stripping French prefixes like "L'OUI" → "OUI", "Le Bar" → "Bar"
-        const strippedName   = googleName.replace(/^(l'|le |la |de |het |den )/i, '').trim()
-
-        const [retrySimple, retryAdv, retryStripped] = await Promise.all([
-          withTimeout(contactSearch(googleName, 10),                                          4000, emptyGHL),
-          withTimeout(contactSearchAdvanced({ searchTerms: correctedTerms, cityFilter }),     4000, emptyGHL),
-          strippedName !== googleName
-            ? withTimeout(contactSearch(strippedName, 10),                                    4000, emptyGHL)
-            : Promise.resolve(emptyGHL),
-        ])
-        const retryAll  = [...(retrySimple.contacts ?? []), ...(retryAdv.contacts ?? []), ...(retryStripped.contacts ?? [])]
-        const retrySeen = new Set<string>()
-        const retryUniq = retryAll.filter(c => {
-          const id = c.id ?? ''; if (!id || retrySeen.has(id)) return false; retrySeen.add(id); return true
+      try {
+        const parseResp = await oai.chat.completions.create({
+          model: 'gpt-4.1-mini',
+          temperature: 0,
+          response_format: { type: 'json_object' },
+          messages: [{
+            role: 'system',
+            content: `Je parseert een Nederlandse CRM-zoekopdracht naar JSON.
+Uitvoer: { "bedrijfsnaam": string, "persoonsnaam": string|null, "stad": string|null, "zoektype": "bedrijf"|"persoon"|"telefoon"|"email" }
+- zoektype "bedrijf": wanneer een bedrijfs- of zaaksnaam wordt gezocht
+- zoektype "persoon": wanneer alleen een persoonsnaam zonder bedrijf
+- zoektype "telefoon"/"email": directe contact-ID
+- Spel getallen uit: "drieëndertig"→"33", "vijftien"→"15"
+- Strip beleefdheidswoorden maar bewaar de echte naam
+- Als stad al gegeven: gebruik die, anders extraheer uit query`,
+          }, {
+            role: 'user',
+            content: `Query: "${rawQuery}"${stadInput ? `\nStad (opgegeven): "${stadInput}"` : ''}`,
+          }],
         })
-        if (retryUniq.length > 0) return formatContacts(retryUniq, true, googleRes.name as string)
+        const p = JSON.parse(parseResp.choices[0].message.content ?? '{}') as Partial<ParsedQuery>
+        parsed = {
+          bedrijfsnaam: p.bedrijfsnaam || rawQuery,
+          persoonsnaam:  p.persoonsnaam ?? null,
+          stad:          p.stad ?? stadInput?.trim() ?? null,
+          zoektype:      p.zoektype ?? 'bedrijf',
+        }
+        console.log('[contact_zoek] parsed:', parsed)
+      } catch (err) {
+        console.error('[contact_zoek] parse error:', err)
+      }
 
-        return {
-          count: 0, contacts: [], via_google_correction: true,
-          corrected_name:   googleRes.name,
-          google_address:   googleRes.formatted ?? null,
-          suggested_action: 'contact_intake',
-          suggested_company: googleRes.name,
-          formatted: `Geen CRM contact gevonden. Google kent wel: "${googleRes.name}" (${googleRes.formatted ?? ''}).\nRoep contact_intake aan met companyName="${googleRes.name}" als gebruiker bevestigt.`,
+      // ── Path A: telefoon / email — direct GHL lookup ──────────────────────
+      if (parsed.zoektype === 'telefoon' || parsed.zoektype === 'email') {
+        const norm = normalizeContactQuery(rawQuery)
+        if (norm.query) {
+          const res = await withTimeout(contactSearchAdvanced({ query: norm.query }), 5000, emptyGHL)
+          if ((res.contacts ?? []).length > 0) return formatContacts(res.contacts)
+        }
+        return { count: 0, contacts: [], formatted: `Geen contact gevonden voor "${rawQuery}".` }
+      }
+
+      // ── Path B: bedrijf/persoon — stad verplicht ──────────────────────────
+      const naam = parsed.bedrijfsnaam.trim()
+      const stad = parsed.stad?.trim() ?? ''
+
+      if (!stad) {
+        return { count: 0, contacts: [], formatted: `In welke plaats zit ${naam}?` }
+      }
+
+      const searchQuery   = `${naam} ${stad}`
+      let   normalizedName  = naam
+      let   googleSource    = false
+      let   googleAdres: Record<string, string> = {}
+
+      // ── Step 2: Outscraper + Google Places parallel (alleen voor bedrijven) ─
+      if (parsed.zoektype === 'bedrijf') {
+        try {
+          const osUrl = `https://api.outscraper.cloud/google-maps-search?query=${encodeURIComponent(searchQuery)}&limit=5&async=false`
+
+          const [osRes, googleRes] = await Promise.all([
+            withTimeout(
+              fetch(osUrl, { headers: { 'X-API-KEY': process.env.OUTSCRAPER_API_KEY ?? '' } }).then(r => r.json()),
+              6000, { data: [[]] }
+            ),
+            withTimeout(googleZoekAdres(searchQuery), 6000, { found: false }),
+          ])
+
+          // Cache full address data from Google Places for use in render_form
+          const gr = googleRes as { found?: boolean; name?: string; address1?: string; postalCode?: string; city?: string; phone?: string; website?: string; openingHours?: string }
+          if (gr.found) {
+            if (gr.name)         googleAdres.companyName  = gr.name
+            if (gr.address1)     googleAdres.address1     = gr.address1
+            if (gr.postalCode)   googleAdres.postalCode   = gr.postalCode
+            if (gr.city)         googleAdres.city         = gr.city
+            if (gr.phone)        googleAdres.phone        = gr.phone
+            if (gr.website)      googleAdres.website      = gr.website
+            if (gr.openingHours) googleAdres.openingHours = gr.openingHours
+          }
+
+          type Candidate = { name: string; city?: string }
+          const candidates: Candidate[] = []
+          const seenNames = new Set<string>()
+
+          for (const p of (((osRes.data ?? [[]])[0] ?? []).slice(0, 5) as Array<Record<string, unknown>>)) {
+            const n = String(p.name ?? '').trim()
+            if (n && !seenNames.has(n.toLowerCase())) { seenNames.add(n.toLowerCase()); candidates.push({ name: n, city: String(p.city ?? '') }) }
+          }
+          if (gr.found && gr.name) {
+            const n = gr.name.trim()
+            if (!seenNames.has(n.toLowerCase())) { seenNames.add(n.toLowerCase()); candidates.push({ name: n, city: stad }) }
+          }
+
+          if (candidates.length) {
+            // ── Step 3: LLM pick best match — strict ──────────────────────
+            const candidateList = candidates.map((c, i) => `${i}: ${c.name}${c.city ? ` (${c.city})` : ''}`).join('\n')
+            const matchResp = await oai.chat.completions.create({
+              model: 'gpt-4.1-mini',
+              temperature: 0,
+              messages: [{
+                role: 'system',
+                content: `Je bepaalt of een Google Maps kandidaat hetzelfde bedrijf is als de zoekopdracht.
+Regels:
+- Geef het cijfer ALLEEN als de naam duidelijk hetzelfde bedrijf is (zelfde naam, zelfde type).
+- Geef "none" als: de naam lijkt puur toevallig op een ander bedrijf, het een ander type bedrijf is (bijv. cosmeticamerk vs. restaurant), of je twijfelt.
+- Voorbeelden van "none": "NARS Cosmetics" voor zoekopdracht "Nars van 't Hemelrijck", "Venster op de Wereld" voor "Venster 33".
+Geef ALLEEN het cijfer of "none". Niets anders.`,
+              }, {
+                role: 'user',
+                content: `Zoekopdracht: "${searchQuery}"\n\nKandidaten:\n${candidateList}`,
+              }],
+            })
+            const choice = matchResp.choices[0].message.content?.trim() ?? 'none'
+            if (choice !== 'none') {
+              const idx = parseInt(choice)
+              if (!isNaN(idx) && candidates[idx]) {
+                normalizedName = candidates[idx].name
+                googleSource   = true
+                console.log(`[contact_zoek] google normalized: "${naam}" → "${normalizedName}"`)
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[contact_zoek] google step error:', err)
         }
       }
 
-      return { count: 0, contacts: [], formatted: `Niets gevonden voor "${rawQuery}". Controleer de naam of probeer een andere zoekterm.` }
+      // ── Step 4: GHL search — 4 parallel strategies ───────────────────────
+      const normQ    = normalizeContactQuery(`${normalizedName} ${stad}`)
+      const normOrig = normalizeContactQuery(`${naam} ${stad}`)
+      const { searchTerms: termsNorm = [], cityFilter } = normQ
+      const { searchTerms: termsOrig = [] }             = normOrig
+
+      const [r1, r2, r3, r4] = await Promise.all([
+        withTimeout(contactSearch(normalizedName, 10), 4000, emptyGHL),
+        withTimeout(contactSearchAdvanced({ searchTerms: termsNorm, cityFilter }), 4000, emptyGHL),
+        normalizedName !== naam
+          ? withTimeout(contactSearch(naam, 10), 4000, emptyGHL)
+          : Promise.resolve(emptyGHL),
+        JSON.stringify(termsOrig) !== JSON.stringify(termsNorm)
+          ? withTimeout(contactSearchAdvanced({ searchTerms: termsOrig, cityFilter }), 4000, emptyGHL)
+          : Promise.resolve(emptyGHL),
+      ])
+
+      const allContacts = dedup([r1.contacts, r2.contacts, r3.contacts, r4.contacts])
+      const stadLower   = stad.toLowerCase()
+      const cityMatched = allContacts.filter(c => (c.city ?? '').toLowerCase().includes(stadLower))
+      const results     = cityMatched.length > 0 ? cityMatched : allContacts
+
+      if (results.length > 0) {
+        return formatContacts(results, googleSource, googleSource ? normalizedName : null)
+      }
+
+      // ── Not found ─────────────────────────────────────────────────────────
+      const displayName = googleSource ? normalizedName : naam
+      const hint        = googleSource ? ` Google kent wel "${normalizedName}" maar het staat niet in het systeem.` : ''
+      const prefillNote = Object.keys(googleAdres).length
+        ? ` Adres al gevonden via Google: ${[googleAdres.address1, googleAdres.postalCode, googleAdres.city].filter(Boolean).join(', ')}.`
+        : ''
+      return {
+        count:          0,
+        contacts:       [],
+        via_google:     googleSource,
+        google_name:    googleSource ? normalizedName : null,
+        google_prefill: Object.keys(googleAdres).length ? googleAdres : null,
+        formatted:      `"${naam}" niet gevonden in het systeem.${hint}${prefillNote}\nWil je "${displayName}" als nieuw contact aanmaken?`,
+      }
     },
   }),
 
@@ -258,30 +366,44 @@ export const ghlTools = {
 
   render_form: tool({
     description: `Toon een invulformulier in de webapp UI voor nieuw contact aanmaken.
-Gebruik dit ALTIJD in de webapp (niet WhatsApp) als een nieuw contact aangemaakt moet worden.
-De tool haalt automatisch het Google-adres op en prefilled het formulier.
+Gebruik dit ALTIJD in de webapp als een nieuw contact aangemaakt moet worden.
+Als contact_zoek een google_prefill object teruggaf: geef die velden mee als prefill_* parameters — dan hoeft de tool Google niet opnieuw aan te roepen.
 Retourneert { action: "render_form", ... } — de frontend rendert dan direct een formulier.`,
     parameters: z.object({
-      companyName: z.string().describe('Bedrijfsnaam — verplicht'),
-      city:        z.string().nullish().describe('Stad — voor betere Google address lookup'),
+      companyName:     z.string().describe('Bedrijfsnaam — verplicht'),
+      city:            z.string().nullish().describe('Stad'),
+      prefill_address: z.string().nullish().describe('Adres uit contact_zoek google_prefill.address1'),
+      prefill_postal:  z.string().nullish().describe('Postcode uit contact_zoek google_prefill.postalCode'),
+      prefill_city:    z.string().nullish().describe('Stad uit contact_zoek google_prefill.city'),
+      prefill_phone:   z.string().nullish().describe('Telefoon uit contact_zoek google_prefill.phone'),
+      prefill_website: z.string().nullish().describe('Website uit contact_zoek google_prefill.website'),
     }),
-    execute: async ({ companyName, city }) => {
-      // Pre-fetch everything from Google so form is fully prefilled
+    execute: async ({ companyName, city, prefill_address, prefill_postal, prefill_city, prefill_phone, prefill_website }) => {
       const prefilled: Record<string, string> = { companyName }
-      try {
-        const query = [companyName, city].filter(Boolean).join(' ')
-        const res   = await googleZoekAdres(query)
-        if (res.found) {
-          // Prefer Google's corrected company name
-          if (res.name)         prefilled.companyName    = res.name as string
-          if (res.address1)     prefilled.address1       = res.address1 as string
-          if (res.postalCode)   prefilled.postalCode     = res.postalCode as string
-          if (res.city)         prefilled.city           = res.city as string
-          if (res.phone)        prefilled.phone          = res.phone as string
-          if (res.website)      prefilled.website        = res.website as string
-          if (res.openingHours) prefilled.openingHours   = res.openingHours as string
-        }
-      } catch { /* ignore — form shows without prefill */ }
+
+      // Use pre-fetched data if available (avoids a second Google call)
+      if (prefill_address || prefill_postal || prefill_city || prefill_phone || prefill_website) {
+        if (prefill_address) prefilled.address1    = prefill_address
+        if (prefill_postal)  prefilled.postalCode  = prefill_postal
+        if (prefill_city)    prefilled.city        = prefill_city
+        if (prefill_phone)   prefilled.phone       = prefill_phone
+        if (prefill_website) prefilled.website     = prefill_website
+      } else {
+        // Fallback: fetch from Google Places
+        try {
+          const query = [companyName, city].filter(Boolean).join(' ')
+          const res   = await googleZoekAdres(query)
+          if (res.found) {
+            if (res.name)         prefilled.companyName  = res.name as string
+            if (res.address1)     prefilled.address1     = res.address1 as string
+            if (res.postalCode)   prefilled.postalCode   = res.postalCode as string
+            if (res.city)         prefilled.city         = res.city as string
+            if (res.phone)        prefilled.phone        = res.phone as string
+            if (res.website)      prefilled.website      = res.website as string
+            if (res.openingHours) prefilled.openingHours = res.openingHours as string
+          }
+        } catch { /* ignore — form shows without prefill */ }
+      }
 
       return {
         action:    'render_form' as const,
@@ -407,12 +529,12 @@ Als rep zegt "Sligro" zonder stad → vraag welke vestiging. "Onbekend" of "geen
   render_edit_form: tool({
     description: `Toon een voorgevuld bewerkformulier voor een bestaand GHL contact in de webapp UI.
 Gebruik dit als een gebruiker een contact wil bewerken/updaten via de webapp.
-Haalt alle velden op uit GHL (naam, adres, telefoon, e-mail, custom fields) en toont het formulier prefilled.
-Geef ALTIJD ook companyName mee vanuit de context (bijv. uit contact_zoek resultaat of chatgeschiedenis).
+De tool zoekt zelf het contact op in GHL via contactId (primair) of companyName (fallback).
+Haalt alle velden op: naam, adres, telefoon, e-mail, custom fields — volledig prefilled.
 Retourneert { action: "render_form", ... } — de frontend rendert direct een bewerkformulier.`,
     parameters: z.object({
-      contactId:   z.string().describe('Contact ID uit contact_zoek'),
-      companyName: z.string().nullish().describe('Bedrijfsnaam — optioneel, als fallback wanneer contactGet traag is'),
+      contactId:   z.string().nullish().describe('Contact ID indien bekend uit een eerdere contact_zoek in deze sessie — weglaten of null als onbekend'),
+      companyName: z.string().describe('Bedrijfsnaam — verplicht, wordt gebruikt om contact te vinden in GHL'),
     }),
     execute: async ({ contactId, companyName }) => {
       const CF_IDS = {
@@ -442,32 +564,37 @@ Retourneert { action: "render_form", ... } — de frontend rendert direct een be
         return prefilled
       }
 
-      // Primary: fetch by contactId
-      try {
-        const res     = await contactGet(contactId)
-        const contact = res?.contact
-        if (contact?.id) {
-          return { action: 'render_form' as const, formType: 'contact_update' as const, prefilled: mapContact(contact, contactId) }
-        }
-        console.warn('[render_edit_form] contactGet returned no contact for', contactId, '— response:', JSON.stringify(res)?.slice(0, 200))
-      } catch (err) {
-        console.error('[render_edit_form] contactGet threw for', contactId, err)
+      // Step 1: try contactId if it looks like a real GHL ID (alphanumeric, 15-25 chars)
+      const idLooksValid = contactId && /^[a-zA-Z0-9]{15,25}$/.test(contactId)
+      if (idLooksValid) {
+        try {
+          const res     = await contactGet(contactId!)
+          const contact = res?.contact
+          const resolvedId = contact?.id || contact?.contactId
+          if (contact && resolvedId) {
+            console.log('[render_edit_form] fetched by contactId:', resolvedId)
+            return { action: 'render_form' as const, formType: 'contact_update' as const, prefilled: mapContact(contact, resolvedId) }
+          }
+        } catch { /* fall through to name search */ }
       }
 
-      // Fallback: search by contactId as query (sometimes GHL IDs are also searchable)
+      // Step 2: always search by companyName — this is the reliable path
       try {
-        const searchRes = await contactSearch(contactId, 1)
+        const searchRes = await contactSearch(companyName, 1)
         const contact   = searchRes?.contacts?.[0]
-        if (contact?.id) {
-          console.log('[render_edit_form] fallback search found contact:', contact.id)
-          return { action: 'render_form' as const, formType: 'contact_update' as const, prefilled: mapContact(contact, contact.id) }
+        const resolvedId = contact?.id || contact?.contactId
+        if (contact && resolvedId) {
+          console.log('[render_edit_form] found by companyName search:', resolvedId, companyName)
+          return { action: 'render_form' as const, formType: 'contact_update' as const, prefilled: mapContact(contact, resolvedId) }
         }
-      } catch { /* ignore */ }
+        console.warn('[render_edit_form] companyName search returned 0 results for:', companyName)
+      } catch (err) {
+        console.error('[render_edit_form] companyName search threw:', err)
+      }
 
-      // Last resort: return with any known hint data from SUUS context
-      const fallbackPrefilled: Record<string, string> = { contactId }
-      if (companyName) fallbackPrefilled.companyName = companyName
-      return { action: 'render_form' as const, formType: 'contact_update' as const, prefilled: fallbackPrefilled, error: 'Contact details niet geladen — vul handmatig aan' }
+      // Last resort
+      console.error('[render_edit_form] all lookups failed for:', companyName)
+      return { action: 'render_form' as const, formType: 'contact_update' as const, prefilled: { companyName }, error: 'Contact niet gevonden in GHL — vul handmatig aan' }
     },
   }),
 
@@ -520,16 +647,23 @@ Retourneert { action: "render_form", ... } — de frontend rendert direct een be
   }),
 
   task_create: tool({
-    description: 'Maak een taak/herinnering aan voor een GHL contact.',
+    description: 'Maak een taak/herinnering aan voor een GHL contact. Gebruik altijd de GHL user ID van de ingelogde gebruiker als assignedTo (staat in sessiecontext als "GHL user ID: xxx").',
     parameters: z.object({
       contactId:  z.string(),
       title:      z.string().describe('Taaknaam, bijv: Terugbellen of Follow-up sturen'),
       body:       z.string().nullish().describe('Extra context of beschrijving'),
       dueDate:    z.string().describe('ISO 8601 datum, bijv: 2026-03-25T09:00:00+01:00'),
-      assignedTo: z.string().nullish().describe('ghl_user_id van de medewerker — weglaten als onbekend'),
+      assignedTo: z.string().nullish().describe('GHL user ID — gebruik ALTIJD de "GHL user ID" uit de sessiecontext tenzij expliciet een collega gevraagd wordt'),
     }),
-    execute: async ({ contactId, assignedTo, body, ...data }) =>
-      taskCreate(contactId, { ...data, body: body ?? undefined, assignedTo: assignedTo ?? '' }),
+    execute: async ({ contactId, assignedTo, body, ...data }) => {
+      const res = await taskCreate(contactId, { ...data, body: body ?? undefined, assignedTo: assignedTo ?? undefined })
+      const r = res as { task?: GHLTask; error?: string; message?: string }
+      if (!r.task && (r.error || r.message)) {
+        console.error('[task_create] GHL error:', r.error ?? r.message)
+        return { success: false, error: r.error ?? r.message ?? 'GHL taak aanmaken mislukt' }
+      }
+      return r
+    },
   }),
 
   task_update: tool({
