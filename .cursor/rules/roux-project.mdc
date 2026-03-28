@@ -1,0 +1,53 @@
+---
+description: ROUX project context — architectuur, agents, deployment
+alwaysApply: true
+---
+
+# ROUX Project Context
+
+## Stack
+- **Next.js** (App Router, Vercel) — frontend + API routes
+- **Supabase** — database + Edge Functions
+- **GoHighLevel (GHL)** — CRM, contacts/tasks/notes/calendar
+- **Retell AI** — voice agent (inbound phone + web button)
+- **OpenAI** — gpt-4.1 (intent routing), gpt-4.1-mini (complex), gpt-4.1-nano (parsing/matching)
+- **Twilio** — inbound phone number `+3197010275858` → webhook → Retell
+
+## Twee agents
+
+### Text agent (chat)
+- Route: `app/api/suus/route.ts`
+- Tools: `lib/suus-tools.ts` (Vercel AI SDK `tool()`)
+- Nieuw contact: altijd `render_form` → formulier in UI → Google prefill intern
+- NOOIT `contact_create` of `google_zoek_adres` aanroepen in webapp aanmaakflow
+
+### Voice agent (telefoon + web button)
+- Edge Function: `supabase/functions/retell-llm/index.ts`
+- Deploy: `npx supabase functions deploy retell-llm --project-ref sjbcyteoowfafitefcyl --no-verify-jwt`
+- JWT verificatie staat UIT (via Supabase Management API `verify_jwt: false`)
+- Retell agent ID: `agent_48141e5b4b595d0821d09ec274` — v1 is published
+- Web call: `app/api/retell/create-call/route.ts`
+- Inbound Twilio webhook: `app/api/retell/inbound/route.ts` → registreert call bij Retell
+
+## contact_zoek flow (beide agents)
+1. `gpt-4.1-nano` parseert query → `{bedrijfsnaam, stad}`
+2. Google Places Text Search → kandidaten ophalen
+3. `gpt-4.1-nano` kiest beste match (STT-correctie)
+4. GHL 4x parallel: `?query=` + `/search/duplicate` × (normalized + original naam)
+5. City filter op resultaten
+
+## GHL
+- Base URL: `https://services.leadconnectorhq.com`
+- Auth: `GHL_API_KEY` (Bearer), `GHL_LOCATION_ID`
+- Custom fields CF: `groothandel`, `klantType`, `klantLabel`, `posMateriaal`, `kortingsafspraken`
+- `contact_create` vereist alleen `companyName` — voornaam, telefoon, email zijn optioneel
+
+## Google Places
+- API: `https://places.googleapis.com/v1/places:searchText`
+- Key: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+- Outscraper is VOLLEDIG verwijderd — gebruik ALLEEN Google Places
+
+## Deployment
+- Vercel auto-deploy op git push naar `main`
+- Edge Function handmatig deployen na wijziging aan `supabase/functions/retell-llm/index.ts`
+- Na deploy Edge Function: JWT check via `curl https://sjbcyteoowfafitefcyl.supabase.co/functions/v1/retell-llm` → moet `{"ok":true}` geven zonder Authorization header

@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     const signature = req.headers.get('x-twilio-signature') ?? ''
 
     // Use NEXT_PUBLIC_APP_URL so the URL matches exactly what's configured in Twilio console
-    const appBase    = (process.env.NEXT_PUBLIC_APP_URL ?? `https://${host}`).replace(/\/$/, '')
+    const appBase    = (process.env.NEXT_PUBLIC_APP_URL ?? `https://${host}`).trim().replace(/\/$/, '')
     const webhookUrl = `${appBase}/api/retell/inbound`
 
     // Validate Twilio signature (skip in local dev / ngrok)
