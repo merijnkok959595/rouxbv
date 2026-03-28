@@ -3,10 +3,8 @@ import { createSessionToken, sessionCookie }  from '@/lib/auth/serverSession'
 
 export const runtime = 'nodejs'
 
-// Fall back to NEXT_PUBLIC_ variants so existing Vercel deployments keep working
-// until the non-public env vars are set in the Vercel dashboard.
-const APP_PASSWORD   = process.env.APP_PASSWORD   ?? process.env.NEXT_PUBLIC_APP_PASSWORD   ?? ''
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? ''
+const APP_PASSWORD   = process.env.APP_PASSWORD   ?? process.env.NEXT_PUBLIC_APP_PASSWORD   ?? 'roux'
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? 'admin'
 
 export async function POST(req: Request) {
   const { password, scope } = await req.json() as { password?: string; scope?: 'app' | 'admin' }
