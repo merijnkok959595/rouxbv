@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DateRangePicker, type DateRange } from '@/components/DateRangePicker'
 import { SourcePicker } from '@/components/SourcePicker'
@@ -76,6 +76,7 @@ export default function LeadsPage() {
   const [members,        setMembers]        = useState<TeamMember[]>([])
   const [dateRange,      setDateRange]      = useState<DateRange>(null)
   const [sourceFilter,   setSourceFilter]   = useState<string[] | null>(null)
+  const [deletingId,     setDeletingId]     = useState<string | null>(null)
 
   async function load() {
     setLoading(true); setError(null); setNextCursor(null)
@@ -112,6 +113,17 @@ export default function LeadsPage() {
     }
   }
 
+  async function deleteLead(id: string) {
+    if (!confirm('Lead verwijderen?')) return
+    setDeletingId(id)
+    try {
+      await fetch(`/api/contacts/${id}`, { method: 'DELETE' })
+      setLeads(prev => prev ? prev.filter(l => l.id !== id) : prev)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   useEffect(() => { void load() }, [])
 
   const memberMap = useMemo(() => {
@@ -120,12 +132,13 @@ export default function LeadsPage() {
     return m
   }, [members])
 
+  const HIDDEN_SOURCES = new Set(['SUUS'])
   const uniqueSources = useMemo(() => {
     if (!leads) return []
     const seen = new Set<string>()
     const ordered: string[] = []
     for (const l of leads) {
-      if (l.source && !seen.has(l.source)) { seen.add(l.source); ordered.push(l.source) }
+      if (l.source && !seen.has(l.source) && !HIDDEN_SOURCES.has(l.source)) { seen.add(l.source); ordered.push(l.source) }
     }
     return ordered
   }, [leads])
@@ -211,7 +224,7 @@ export default function LeadsPage() {
             <table className="w-full border-collapse min-w-[1200px]">
               <thead>
                 <tr>
-                  {['Bedrijf','Contactpersoon','Telefoon','Adres','Groothandel','Notities','Plaats','Type','Bron','Label','Volume','Door','Aan','WhatsApp','GHL','Datum'].map(h => (
+                  {['Bedrijf','Contactpersoon','Adres','Stad','Telefoon','Type','Bron','Label','Volume','Groothandel','Notities','Door','Aan','WhatsApp','GHL','Datum',''].map(h => (
                     <th key={h} className="px-3.5 py-2.5 text-left text-xs font-bold text-primary uppercase tracking-[0.05em] border-b border-border whitespace-nowrap">
                       {h}
                     </th>
@@ -241,28 +254,16 @@ export default function LeadsPage() {
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] font-semibold whitespace-nowrap">{row.company_name ?? '—'}</td>
                       {/* Contactpersoon */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted whitespace-nowrap">{contactNaam || '—'}</td>
+                      {/* Adres */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted whitespace-nowrap">{adres || '—'}</td>
+                      {/* Stad */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted whitespace-nowrap">{row.city ?? '—'}</td>
                       {/* Telefoon */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] whitespace-nowrap" style={{ fontFamily: MONO }}>
                         {row.phone
                           ? <a href={`tel:${row.phone}`} className="text-primary hover:underline">{row.phone}</a>
                           : <span className="text-muted">—</span>}
                       </td>
-                      {/* Adres */}
-                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted whitespace-nowrap">{adres || '—'}</td>
-                      {/* Groothandel */}
-                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] whitespace-nowrap">
-                        {groothandel
-                          ? <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-active border border-border text-primary whitespace-nowrap">{groothandel}</span>
-                          : <span className="text-muted">—</span>}
-                      </td>
-                      {/* Notities */}
-                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[12px] text-muted max-w-[180px]">
-                        {notities
-                          ? <span className="block truncate" title={notities}>{notities}</span>
-                          : '—'}
-                      </td>
-                      {/* Plaats */}
-                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] text-muted whitespace-nowrap">{row.city ?? '—'}</td>
                       {/* Type */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
                         {typeS
@@ -287,6 +288,18 @@ export default function LeadsPage() {
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-xs text-muted whitespace-nowrap"
                         style={{ fontFamily: MONO }}>
                         {row.revenue != null ? row.revenue.toLocaleString('nl-NL') : '—'}
+                      </td>
+                      {/* Groothandel */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px] whitespace-nowrap">
+                        {groothandel
+                          ? <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-active border border-border text-primary whitespace-nowrap">{groothandel}</span>
+                          : <span className="text-muted">—</span>}
+                      </td>
+                      {/* Notities */}
+                      <td className="px-3.5 py-2.5 align-middle border-b border-border text-[12px] text-muted max-w-[180px]">
+                        {notities
+                          ? <span className="block truncate" title={notities}>{notities}</span>
+                          : '—'}
                       </td>
                       {/* Door — aangemaakt door */}
                       <td className="px-3.5 py-2.5 align-middle border-b border-border text-[13px]">
@@ -324,6 +337,18 @@ export default function LeadsPage() {
                         {row.created_at
                           ? new Date(row.created_at).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '')
                           : '—'}
+                      </td>
+                      {/* Delete */}
+                      <td className="px-2.5 py-2.5 align-middle border-b border-border">
+                        <button
+                          onClick={() => void deleteLead(row.id)}
+                          disabled={deletingId === row.id}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-wait"
+                        >
+                          {deletingId === row.id
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <Trash2 size={13} />}
+                        </button>
                       </td>
                     </tr>
                   )

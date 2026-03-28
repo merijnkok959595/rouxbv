@@ -13,16 +13,17 @@ Browser / Mobiel
 Next.js App (Vercel)
 ├── /formulier        Beurs intake formulier (mobiel-first)
 ├── /leads            Lead overzicht met filters
+├── /awards           Awards overzicht
 ├── /instellingen     Medewerkers, routing, kwalificatie config
-├── /routing          Routing configuratie (postcode, regels, AI)
 ├── /suus             SUUS AI chat assistent
-└── /test             Endpoint smoke-tests (admin only)
+├── /suus/voice       Retell AI voice agent (web call)
+└── /admin            Beheer (AdminGate beveiligd)
     │
-    ├── Supabase (PostgreSQL)   Primaire database
-    ├── GoHighLevel (GHL)       CRM synchronisatie
-    ├── OpenAI (GPT-4.1)        SUUS AI + lead kwalificatie
-    ├── Retell AI               Voice agent
-    └── Twilio                  SIP / WhatsApp
+    ├── Supabase (PostgreSQL)       Primaire database + Edge Functions (suus-mcp, voice)
+    ├── GoHighLevel (GHL)           CRM synchronisatie
+    ├── OpenAI (GPT-4.1 / 4o-mini)  SUUS AI + lead kwalificatie
+    ├── Retell AI                   Voice agent (Conversation Flow + MCP)
+    └── Twilio                      Inbound SIP / WhatsApp
 ```
 
 ---
@@ -71,6 +72,9 @@ Maak een `.env.local` in de root aan met de volgende variabelen:
 | Variabele | Beschrijving |
 |-----------|-------------|
 | `NEXT_PUBLIC_APP_URL` | Productie URL, bijv. `https://rouxbv.vercel.app` |
+| `APP_PASSWORD` | Toegangscode voor de app (server-only, niet NEXT_PUBLIC) |
+| `ADMIN_PASSWORD` | Toegangscode voor admin functies (server-only) |
+| `APP_SECRET` | Willekeurige 32-char string voor sessiecookie signing (**verplicht in productie**) |
 
 ### OpenAI
 | Variabele | Beschrijving |
@@ -259,11 +263,11 @@ SUUS chat geschiedenis per sessie.
 ### Voice & WhatsApp
 | Route | Method | Beschrijving |
 |-------|--------|-------------|
-| `/api/call` | POST | Initieer outbound call |
-| `/api/call/incoming` | GET | WebSocket handler voor inkomende SIP calls |
-| `/api/retell-llm` | POST | Retell LLM webhook |
-| `/api/voice` | POST | Voice webhook handler |
+| `/api/retell/create-call` | POST | Maak Retell web call aan (vanuit browser) |
+| `/api/retell/inbound` | POST | Twilio webhook voor inkomende calls → Retell |
 | `/api/whatsapp` | POST | WhatsApp webhook (Twilio) |
+
+> Inbound telefonie loopt via de Supabase Edge Function `voice` → Retell AI Conversation Flow → `suus-mcp` Edge Function (MCP tools).
 
 ### GHL (GoHighLevel)
 | Route | Method | Beschrijving |
@@ -294,19 +298,17 @@ Voeg alle variabelen uit `.env.local` toe in het Vercel dashboard onder **Settin
 ### Supabase Edge Functions
 Edge functions staan in `supabase/functions/`. Deploy met:
 ```bash
-supabase functions deploy retell-llm
-supabase functions deploy suus
+supabase functions deploy suus-mcp
 supabase functions deploy voice
 ```
 
-> Edge functions gebruiken `DEFAULT_ORGANIZATION_ID` (suus, retell-llm) of `ORGANIZATION_ID` (voice) als environment variabele — stel deze in via het Supabase dashboard onder **Edge Functions → Secrets**.
+> Stel `RETELL_API_KEY`, `RETELL_VOICE_AGENT_ID`, `ORGANIZATION_ID`, `TWILIO_AUTH_TOKEN`, en Supabase secrets in via het Supabase dashboard onder **Edge Functions → Secrets**.
 
 ---
 
-## Wachtwoord & Beveiliging
+## Beveiliging
 
-De app is beveiligd met een eenvoudig wachtwoord in `components/PasswordGate.tsx`. Dit is bedoeld voor intern gebruik op een beurs — geen productie-authenticatie.
-
-Admin functies (test page, seed users) zijn extra beveiligd via `components/AdminGate.tsx`.
-
-> Voor productie-gebruik: vervang PasswordGate door Supabase Auth of een andere auth provider.
+- **Wachtwoord gate**: `PasswordGate` + `AdminGate` valideren het wachtwoord via `/api/auth/verify` (server-side). Na verificatie wordt een gesigneerd httpOnly sessiecookie gezet.
+- **API middleware**: `middleware.ts` beschermt alle gevoelige API routes (leads, contacts, SUUS, Retell, admin) — verzoeken zonder geldig sessiecookie worden geweigerd met 401.
+- **Secrets**: `APP_PASSWORD`, `ADMIN_PASSWORD` en `APP_SECRET` zijn server-only env vars (niet `NEXT_PUBLIC_`). Stel een sterke `APP_SECRET` in op Vercel voor productie.
+- **Twilio**: De `voice` Edge Function valideert het Twilio `X-Twilio-Signature` header.

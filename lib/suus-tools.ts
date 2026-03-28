@@ -1,8 +1,8 @@
 /**
  * SUUS tool definitions using Vercel AI SDK tool() + Zod
- * Used by /api/suus (streamText) and /api/retell-llm
+ * Used by /api/suus (streamText), /api/whatsapp, and eval endpoints.
  *
- * GHL tools mirror the n8n MCP server (Roux | MCP Server.json).
+ * GHL tools mirror the Retell MCP server (suus-mcp Edge Function).
  * Supabase tools handle local ROUX data (team, stats).
  */
 

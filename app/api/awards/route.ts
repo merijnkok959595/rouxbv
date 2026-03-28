@@ -60,8 +60,9 @@ export async function GET(req: Request) {
 
     const seenSrc = new Set<string>()
     const uniqueSources: string[] = []
+    const HIDDEN_SOURCES = new Set(['SUUS'])
     for (const r of srcQ.data ?? []) {
-      if (r.source && !seenSrc.has(r.source)) { seenSrc.add(r.source); uniqueSources.push(r.source) }
+      if (r.source && !seenSrc.has(r.source) && !HIDDEN_SOURCES.has(r.source)) { seenSrc.add(r.source); uniqueSources.push(r.source) }
     }
 
     // ---- award maps ----

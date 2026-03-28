@@ -132,7 +132,8 @@ async function runPreRoutingAI(prompt: string, contact: ContactInput, useWebSear
 
 export async function POST(req: Request) {
   const body  = await req.json()
-  const orgId = body.organization_id ?? resolveOrgId()
+  // Always use server env — never trust client-supplied organization_id
+  const orgId = resolveOrgId()
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let contact: ContactInput
@@ -206,13 +207,24 @@ export async function POST(req: Request) {
     }
 
     // Postcode territory matching from team_members
+    // Supports: "1000-1199" (numeric range), "17" (prefix), "*" (skip — means unassigned)
     if (!assignedTo) {
-      const postcode = (contact.postcode ?? '').replace(/\s/g, '').toLowerCase()
-      if (postcode) {
+      const postcode = (contact.postcode ?? '').replace(/\s/g, '')
+      const digits   = parseInt(postcode.slice(0, 4), 10)
+      if (postcode && !isNaN(digits)) {
         for (const emp of employees) {
-          const hit = (emp.postcode_ranges ?? []).find(r =>
-            postcode.startsWith(r.replace(/\s/g, '').toLowerCase())
-          )
+          const ranges = (emp.postcode_ranges ?? []).filter(r => r !== '*')
+          const hit = ranges.find(r => {
+            const rangeParts = r.replace(/\s/g, '').split('-')
+            if (rangeParts.length === 2) {
+              // Range format: "1000-1199"
+              const lo = parseInt(rangeParts[0], 10)
+              const hi = parseInt(rangeParts[1], 10)
+              return !isNaN(lo) && !isNaN(hi) && digits >= lo && digits <= hi
+            }
+            // Prefix format: "17" matches 1700-1799
+            return postcode.toLowerCase().startsWith(r.replace(/\s/g, '').toLowerCase())
+          })
           if (hit) {
             assignedTo = emp.naam
             phase      = 'body'

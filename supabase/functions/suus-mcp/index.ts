@@ -378,8 +378,25 @@ Deno.serve(async (req: Request) => {
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return new Response('Bad JSON', { status: 400 }) }
 
+  // Log the full request so we can see exactly what Retell sends
+  console.log('[suus-mcp] REQUEST body:', JSON.stringify(body).slice(0, 800))
+
   const id     = body.id ?? null
   const method = String(body.method ?? '')
+
+  // Retell webhook-style fallback: if body has 'name' but no 'method', treat as direct tool call
+  if (!method && body.name) {
+    let rawArgs: unknown = body.arguments ?? body.parameters ?? {}
+    let safety = 0
+    while (typeof rawArgs === 'string' && safety++ < 5) {
+      try { rawArgs = JSON.parse(rawArgs) } catch { rawArgs = {}; break }
+    }
+    if (typeof rawArgs !== 'object' || rawArgs === null) rawArgs = {}
+    const toolName = String(body.name)
+    console.log(`[suus-mcp] webhook-style call: ${toolName}`, JSON.stringify(rawArgs))
+    const result = await callTool(toolName, rawArgs as Record<string, unknown>)
+    return Response.json({ result }, { headers: CORS })
+  }
 
   const ok = (result: unknown) => Response.json({ jsonrpc: '2.0', id, result }, { headers: CORS })
   const err = (code: number, msg: string) => Response.json({ jsonrpc: '2.0', id, error: { code, message: msg } }, { headers: CORS })

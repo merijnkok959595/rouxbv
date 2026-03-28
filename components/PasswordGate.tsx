@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import type { Employee } from '@/lib/employee-context'
 
-const PASSWORD    = process.env.NEXT_PUBLIC_APP_PASSWORD ?? 'ROUX2026'
 const KEY_UNLOCK  = 'roux_unlocked'
 const KEY_EMP     = 'roux_active_employee'
 
@@ -20,10 +19,10 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
     const unlocked = localStorage.getItem(KEY_UNLOCK) === '1'
     const savedEmp = localStorage.getItem(KEY_EMP)
 
-    if (unlocked && savedEmp) {
-      setStep('done')
-    } else if (unlocked) {
-      loadEmployees('employee')
+    if (unlocked) {
+      // Always verify session is still valid via the employees fetch.
+      // If session cookie is missing/expired, loadEmployees redirects back to password.
+      loadEmployees(savedEmp ? 'done' : 'employee')
     } else {
       setStep('password')
     }
@@ -32,8 +31,13 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
   async function loadEmployees(nextStep: Step) {
     try {
       const res  = await fetch('/api/settings/employees')
+      if (res.status === 401) {
+        // Session cookie expired or missing — force re-auth
+        localStorage.removeItem(KEY_UNLOCK)
+        setStep('password')
+        return
+      }
       const data = await res.json()
-      // /api/settings/employees returns an array directly
       const list: Employee[] = Array.isArray(data) ? data : (data.members ?? [])
       setEmployees(list)
       setStep(nextStep)
@@ -43,12 +47,22 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
     }
   }
 
-  function attemptPassword() {
-    if (input === PASSWORD) {
-      localStorage.setItem(KEY_UNLOCK, '1')
-      setError(false)
-      loadEmployees('employee')
-    } else {
+  async function attemptPassword() {
+    try {
+      const res = await fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: input, scope: 'app' }),
+      })
+      if (res.ok) {
+        localStorage.setItem(KEY_UNLOCK, '1')
+        setError(false)
+        loadEmployees('employee')
+      } else {
+        setError(true)
+        setInput('')
+      }
+    } catch {
       setError(true)
       setInput('')
     }
@@ -79,7 +93,7 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
               autoFocus
               placeholder="Wachtwoord"
               onChange={e => { setInput(e.target.value); setError(false) }}
-              onKeyDown={e => e.key === 'Enter' && attemptPassword()}
+              onKeyDown={e => e.key === 'Enter' && void attemptPassword()}
               className="w-full px-4 py-3 rounded-[10px] bg-white text-[#0a0a0a] text-[15px] outline-none tracking-[0.1em] transition-colors box-border placeholder:text-[#999]"
               style={{ border: `1px solid ${error ? '#ef4444' : '#ddd'}` }}
             />
@@ -87,7 +101,7 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
               <p className="text-xs text-red-400 text-center">Onjuiste code. Probeer opnieuw.</p>
             )}
             <button
-              onClick={attemptPassword}
+              onClick={() => void attemptPassword()}
               className="w-full py-3 rounded-[10px] border-none bg-white text-[#0a0a0a] text-sm font-bold cursor-pointer tracking-[0.04em] hover:opacity-90 transition-opacity"
             >
               Doorgaan

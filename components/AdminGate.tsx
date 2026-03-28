@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
-const PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? 'ADMIN123!'
-const KEY      = 'roux_admin_unlocked'
+const KEY = 'roux_admin_unlocked'
 
 export default function AdminGate({ children }: { children: React.ReactNode }) {
   const [unlocked, setUnlocked] = useState(false)
@@ -13,15 +12,25 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
   const [ready,    setReady]    = useState(false)
 
   useEffect(() => {
-    if (localStorage.getItem(KEY) === '1') setUnlocked(true)
+    localStorage.removeItem(KEY)
+    if (sessionStorage.getItem(KEY) === '1') setUnlocked(true)
     setReady(true)
   }, [])
 
-  function attempt() {
-    if (input === PASSWORD) {
-      localStorage.setItem(KEY, '1')
-      setUnlocked(true); setError(false)
-    } else {
+  async function attempt() {
+    try {
+      const res = await fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: input, scope: 'admin' }),
+      })
+      if (res.ok) {
+        sessionStorage.setItem(KEY, '1')
+        setUnlocked(true); setError(false)
+      } else {
+        setError(true); setInput('')
+      }
+    } catch {
       setError(true); setInput('')
     }
   }
@@ -55,7 +64,7 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
               autoFocus
               placeholder="Admin wachtwoord"
               onChange={e => { setInput(e.target.value); setError(false) }}
-              onKeyDown={e => e.key === 'Enter' && attempt()}
+              onKeyDown={e => e.key === 'Enter' && void attempt()}
               className="w-full px-4 py-3 rounded-[10px] bg-white text-[#0a0a0a] text-[15px] outline-none tracking-[0.1em] transition-colors box-border placeholder:text-[#999]"
               style={{ border: `1px solid ${error ? '#ef4444' : '#333'}` }}
             />
@@ -63,7 +72,7 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
               <p className="text-xs text-red-400 text-center">Onjuiste code. Probeer opnieuw.</p>
             )}
             <button
-              onClick={attempt}
+              onClick={() => void attempt()}
               className="w-full py-3 rounded-[10px] border-none bg-white text-[#0a0a0a] text-sm font-bold cursor-pointer tracking-[0.04em] hover:opacity-90 transition-opacity"
             >
               Toegang

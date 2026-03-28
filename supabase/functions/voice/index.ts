@@ -4,8 +4,8 @@
  * Inbound Twilio voice call → Retell AI (SIP)
  * Stable URL: https://sjbcyteoowfafitefcyl.supabase.co/functions/v1/voice
  *
- * Employee context is resolved inside /api/retell-llm via call.from_number —
- * no dynamic variables needed here, avoids type issues with complex DB fields.
+ * Employee context is resolved from the Supabase team_members table via call.from_number,
+ * then injected as retell_llm_dynamic_variables (firstname, caller_name, ghl_user_id, calendar_id).
  *
  * Set in Twilio Console:
  *   Phone Numbers → Manage → [ROUX nummer] → Voice & Fax
@@ -17,6 +17,21 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const RETELL_KEY         = Deno.env.get('RETELL_API_KEY')         ?? ''
 const RETELL_VOICE_AGENT = Deno.env.get('RETELL_VOICE_AGENT_ID')  ?? Deno.env.get('RETELL_AGENT_ID') ?? ''
 const ORG_ID             = Deno.env.get('ORGANIZATION_ID')        ?? ''
+const TWILIO_AUTH_TOKEN  = Deno.env.get('TWILIO_AUTH_TOKEN')      ?? ''
+
+/** Validate Twilio signature using Web Crypto (HMAC-SHA1) */
+async function validateTwilioSignature(req: Request, rawBody: string): Promise<boolean> {
+  if (!TWILIO_AUTH_TOKEN) return true // allow when token not set (local dev)
+  const signature = req.headers.get('x-twilio-signature') ?? ''
+  const params    = new URLSearchParams(rawBody)
+  const sorted    = [...params.entries()].sort(([a], [b]) => a.localeCompare(b))
+  const toSign    = req.url + sorted.map(([k, v]) => k + v).join('')
+  const enc       = new TextEncoder()
+  const key       = await crypto.subtle.importKey('raw', enc.encode(TWILIO_AUTH_TOKEN), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign'])
+  const sigBuf    = await crypto.subtle.sign('HMAC', key, enc.encode(toSign))
+  const expected  = btoa(String.fromCharCode(...new Uint8Array(sigBuf)))
+  return expected === signature
+}
 
 function supabase() {
   return createClient(
@@ -53,9 +68,15 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const form = await req.formData()
-    const from = form.get('From')?.toString() ?? ''
-    const to   = form.get('To')?.toString()   ?? ''
+    const rawBody = await req.text()
+    if (!(await validateTwilioSignature(req, rawBody))) {
+      console.warn('[voice] rejected request: invalid Twilio signature')
+      return new Response('Forbidden', { status: 403 })
+    }
+
+    const form = new URLSearchParams(rawBody)
+    const from = form.get('From') ?? ''
+    const to   = form.get('To')   ?? ''
 
     if (!from) return twiml('<Say language="nl-NL">Onbekend nummer.</Say>')
 
