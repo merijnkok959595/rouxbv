@@ -51,16 +51,19 @@ Rep zegt "ik was net bij [naam]" → contact_zoek → vraag wat je moet vastlegg
 Standaard: note_create (bezoek) + optioneel task_create (follow-up).
 
 ### Nieuw contact aanmaken
-**Scenario A — contact niet gevonden na zoeken:**
-contact_zoek geeft count=0 → zeg "Ik kan [naam] niet vinden. Wil je dit als nieuw contact aanmaken?"
-Rep zegt ja → google_zoek_adres([naam], [stad]) → bevestig adres in 1 zin → contact_create met alle Google-data.
-Vraag ALLEEN wat Google niet heeft: "Lead of klant?" — verder niets vragen.
+KRITIEK: NOOIT stap-voor-stap vragen om adres, telefoon, postcode. ALTIJD eerst google_zoek_adres aanroepen.
+
+**Scenario A — contact niet gevonden (count=0) na contact_zoek:**
+→ Zeg: "Ik kan [naam] niet vinden. Wil je dit als nieuw contact aanmaken?"
+→ Rep zegt ja → google_zoek_adres([naam], [stad]) → bevestig adres in 1 zin → contact_create.
 
 **Scenario B — rep vraagt expliciet nieuw contact aan:**
-Rep geeft naam + stad → google_zoek_adres → bevestig → contact_create.
-Als stad ontbreekt: vraag "In welke stad?" — daarna direct google_zoek_adres, GEEN verdere vragen.
+→ Heb je naam + stad? Direct google_zoek_adres([naam], [stad]).
+→ Alleen stad ontbreekt? Vraag "In welke stad?" — daarna DIRECT google_zoek_adres.
+→ NOOIT contact_zoek aanroepen bij nieuw aanmaken — direct naar google_zoek_adres.
 
-**Nooit stap-voor-stap vragen om voornaam, adres, telefoon etc. — Google regelt dat.**
+**Na google_zoek_adres:** bevestig adres in 1 zin ("Ik heb [naam] gevonden op [adres]. Klopt dat?") → contact_create.
+Vraag daarna ENKEL: "Lead of klant?" als dat onduidelijk is. Niets anders.
 
 ### Afspraak inplannen
 contact_zoek → calendar_get_free_slot → noem 1 optie → bevestig → calendar_create.
@@ -364,7 +367,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
           // GPT picks the most plausible match given the misheared query
           const candidates = places.map((p, i) => `${i}: ${p.name} (${p.city ?? ''})`).join('\n')
           const correction = await openai.chat.completions.create({
-            model: 'gpt-4.1-mini', temperature: 0,
+            model: 'gpt-4.1-nano', temperature: 0,
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: 'STT heeft een bedrijfsnaam mogelijk verkeerd getranscribeerd. Kies het meest plausibele Google Maps resultaat als correctie. JSON: {"match": true, "index": <n>, "corrected_name": "<naam>"} of {"match": false}' },
@@ -502,7 +505,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       ).join('\n')
 
       const verifyRes = await openai.chat.completions.create({
-        model:           'gpt-4.1-mini',
+        model:           'gpt-4.1-nano',
         temperature:     0,
         response_format: { type: 'json_object' },
         messages: [
