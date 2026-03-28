@@ -360,37 +360,52 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         return formatContacts(toShow)
       }
 
-      // Step 2: Outscraper "did you mean?" — Google Maps fuzzy corrects STT errors
-      // (Prefix fallback removed — too many false positives on person first names)
-      const osQuery = city ? `${originalQuery} ${city}` : originalQuery
+      // Step 2: Google Places Text Search — STT correction + GHL retry
+      const placesQuery = city ? `${originalQuery} ${city}` : originalQuery
       try {
-        const osRes = await fetch(
-          `https://api.outscraper.cloud/google-maps-search?query=${encodeURIComponent(osQuery)}&limit=5&async=false`,
-          { headers: { 'X-API-KEY': Deno.env.get('OUTSCRAPER_API_KEY') ?? '' } }
-        ).then(r => r.json())
-        const places: Array<Record<string, unknown>> = ((osRes.data ?? [[]])[0] ?? []).slice(0, 5)
+        const gKey = Deno.env.get('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ?? ''
+        const gRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
+          method: 'POST',
+          headers: {
+            'Content-Type':     'application/json',
+            'X-Goog-Api-Key':   gKey,
+            'X-Goog-FieldMask': 'places.displayName,places.addressComponents',
+          },
+          body: JSON.stringify({ textQuery: placesQuery, languageCode: 'nl', regionCode: 'NL', maxResultCount: 5 }),
+        }).then(r => r.json()) as { places?: Array<Record<string, unknown>> }
+
+        const places = (gRes.places ?? []).slice(0, 5)
 
         if (places.length) {
-          // GPT picks the most plausible match given the misheared query
-          const candidates = places.map((p, i) => `${i}: ${p.name} (${p.city ?? ''})`).join('\n')
+          const candidates = places.map((p, i) => {
+            const n = (p.displayName as { text?: string } | undefined)?.text ?? ''
+            type AC = { longText?: string; types?: string[] }
+            const comps = (p.addressComponents ?? []) as AC[]
+            const c = comps.find(x => x.types?.includes('locality'))?.longText ?? ''
+            return `${i}: ${n}${c ? ` (${c})` : ''}`
+          }).join('\n')
+
           const correction = await openai.chat.completions.create({
             model: 'gpt-4.1-nano', temperature: 0,
             response_format: { type: 'json_object' },
             messages: [
-              { role: 'system', content: 'STT heeft een bedrijfsnaam mogelijk verkeerd getranscribeerd. Kies het meest plausibele Google Maps resultaat als correctie. JSON: {"match": true, "index": <n>, "corrected_name": "<naam>"} of {"match": false}' },
-              { role: 'user',   content: `STT zei: "${originalQuery}"\nGoogle Maps kandidaten:\n${candidates}` },
+              { role: 'system', content: 'STT heeft een bedrijfsnaam mogelijk verkeerd getranscribeerd. Kies het meest plausibele Google Places resultaat als correctie. JSON: {"match": true, "index": <n>, "corrected_name": "<naam>"} of {"match": false}' },
+              { role: 'user',   content: `STT zei: "${originalQuery}"\nGoogle Places kandidaten:\n${candidates}` },
             ],
           })
           let verdict: Record<string, unknown> = { match: false }
           try { verdict = JSON.parse(correction.choices[0].message.content ?? '{}') } catch { /* ignore */ }
 
           if (verdict.match) {
-            const correctedName = String(verdict.corrected_name ?? places[Number(verdict.index ?? 0)].name ?? '')
+            const idx = Number(verdict.index ?? 0)
+            const correctedName = String(verdict.corrected_name
+              ?? (places[idx]?.displayName as { text?: string } | undefined)?.text
+              ?? originalQuery)
             contacts = await ghlSearch(correctedName)
             if (contacts.length) return formatContacts(contacts, `CRM systeem — naam gecorrigeerd van "${originalQuery}" naar "${correctedName}"`)
           }
         }
-      } catch { /* Outscraper error — fall through to new contact offer */ }
+      } catch { /* Google Places error — fall through to new contact offer */ }
 
       // Step 4: nothing found — offer to create new contact
       return `[BRON: niet gevonden] Geen contact gevonden voor "${originalQuery}". Vraag de rep: "Wil je ${originalQuery} als nieuw contact aanmaken?"`
@@ -496,54 +511,53 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       const bedrijfsnaam = normaliseQuery(String(args.bedrijfsnaam ?? ''))
       const plaatsnaam   = String(args.plaatsnaam ?? '')
       const queryStr     = plaatsnaam ? `${bedrijfsnaam} ${plaatsnaam}` : bedrijfsnaam
+      const gKey         = Deno.env.get('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY') ?? ''
 
-      // Step 1: Outscraper Google Maps Search — top 5 results
-      const osUrl = `https://api.outscraper.cloud/google-maps-search?query=${encodeURIComponent(queryStr)}&limit=5&async=false`
-      const osRes = await fetch(osUrl, {
-        headers: { 'X-API-KEY': Deno.env.get('OUTSCRAPER_API_KEY') ?? '' },
-      }).then(r => r.json())
+      // Google Places Text Search (New) — single call, ordered by relevance
+      const gRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
+        method: 'POST',
+        headers: {
+          'Content-Type':     'application/json',
+          'X-Goog-Api-Key':   gKey,
+          'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.addressComponents,places.internationalPhoneNumber,places.websiteUri',
+        },
+        body: JSON.stringify({ textQuery: queryStr, languageCode: 'nl', regionCode: 'NL', maxResultCount: 5 }),
+      }).then(r => r.json()) as { places?: Array<Record<string, unknown>> }
 
-      const places: Array<Record<string, unknown>> = ((osRes.data ?? [[]])[0] ?? []).slice(0, 5)
+      const places = (gRes.places ?? []).slice(0, 5)
       if (!places.length) return `[BRON: niet gevonden] Geen adres gevonden voor "${queryStr}". Vraag de gebruiker om naam of stad te verduidelijken.`
 
-      // Step 2: GPT-4.1-mini picks the best match
-      const candidateList = places.map((p, i) =>
-        `${i}: ${p.name} — ${p.address ?? p.street + ', ' + p.postal_code + ' ' + p.city}`
-      ).join('\n')
+      // nano picks the best match
+      const candidateList = places.map((p, i) => {
+        const n = (p.displayName as { text?: string } | undefined)?.text ?? ''
+        return `${i}: ${n} — ${p.formattedAddress ?? ''}`
+      }).join('\n')
 
       const verifyRes = await openai.chat.completions.create({
-        model:           'gpt-4.1-nano',
-        temperature:     0,
+        model: 'gpt-4.1-nano', temperature: 0,
         response_format: { type: 'json_object' },
         messages: [
-          {
-            role:    'system',
-            content: `Je krijgt een zoekopdracht en Google Maps resultaten. Kies het BESTE match.
-JSON formaat:
-- Match: {"match": true, "index": <n>}
-- Geen match: {"match": false}
-Wees streng: alleen "match: true" als je zeker bent.`,
-          },
-          {
-            role:    'user',
-            content: `Zoekopdracht: "${queryStr}"\n\nCandidaten:\n${candidateList}`,
-          },
+          { role: 'system', content: 'Kies het beste Google Places resultaat voor de zoekopdracht. JSON: {"match": true, "index": <n>} of {"match": false}. Wees streng.' },
+          { role: 'user',   content: `Zoekopdracht: "${queryStr}"\n\nCandidaten:\n${candidateList}` },
         ],
       })
 
       let verdict: Record<string, unknown> = { match: false }
       try { verdict = JSON.parse(verifyRes.choices[0].message.content ?? '{}') } catch { /* ignore */ }
-
       if (!verdict.match) return `[BRON: niet gevonden] Geen betrouwbaar adres gevonden voor "${queryStr}". Vraag de gebruiker om naam of stad te verduidelijken.`
 
-      const p      = places[Number(verdict.index ?? 0)] ?? places[0]
-      const name   = String(p.name   ?? '')
-      const street = String(p.street ?? (String(p.address ?? '')).split(',')[0] ?? '')
-      const city   = String(p.city   ?? plaatsnaam ?? '')
-      const postal = String(p.postal_code ?? '')
-      const phone  = p.phone ? ` | tel: ${p.phone}` : ''
+      const p    = places[Number(verdict.index ?? 0)] ?? places[0]
+      type AC    = { longText?: string; shortText?: string; types?: string[] }
+      const comps = (p.addressComponents ?? []) as AC[]
+      const get   = (type: string) => comps.find(c => c.types?.includes(type))?.longText ?? ''
+      const placeName = (p.displayName as { text?: string } | undefined)?.text ?? bedrijfsnaam
+      const street    = `${get('route')} ${get('street_number')}`.trim()
+      const city2     = get('locality') || get('administrative_area_level_2') || plaatsnaam
+      const postal    = get('postal_code')
+      const phone     = p.internationalPhoneNumber ? ` | tel: ${p.internationalPhoneNumber}` : ''
+      const website   = p.websiteUri ? ` | ${p.websiteUri}` : ''
 
-      return `[BRON: Google — NIET in CRM systeem] Gevonden: ${name} — ${street}, ${postal} ${city}${phone}`.trim()
+      return `[BRON: Google — NIET in CRM systeem] Gevonden: ${placeName} — ${street}, ${postal} ${city2}${phone}${website}`.trim()
     }
 
     if (name === 'get_team_members') {
