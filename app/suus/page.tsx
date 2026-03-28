@@ -430,7 +430,7 @@ export default function SuusPage() {
 
       {/* ── Message feed ─────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden [scrollbar-width:thin] [scrollbar-color:theme(colors.border)_transparent]">
-        <div className="max-w-[720px] mx-auto w-full px-4 sm:px-6 pt-6 pb-4 flex flex-col">
+        <div className="max-w-[720px] mx-auto w-full px-4 sm:px-6 pt-14 pb-4 flex flex-col">
 
           {/* Empty state */}
           {msgs.length === 0 && (
