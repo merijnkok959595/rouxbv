@@ -89,8 +89,9 @@ export default function FormulierPage() {
       if (savedBeurs && BEURS_OPTIONS.includes(savedBeurs)) setBeursName(savedBeurs)
     } catch { /* ignore */ }
     fetch('/api/settings/employees')
-      .then(r => r.json())
-      .then((d: TeamMember[]) => {
+      .then(async r => {
+        if (!r.ok) return // silently skip — form still usable without team list
+        const d = await r.json() as TeamMember[]
         const list: TeamMember[] = Array.isArray(d) ? d : (d as { members?: TeamMember[] }).members ?? []
         setTeamMembers(list)
         // Default: logged-in user from localStorage, else last used, else first employee
@@ -287,7 +288,7 @@ export default function FormulierPage() {
   }
 
   const isSubmitting = phase === 'saving' || phase === 'enriching'
-  const canSubmit    = !isSubmitting && !loadingTeam && !!aangemeldDoor
+  const canSubmit    = !isSubmitting && !loadingTeam
   const showResult   = phase === 'enriching' || phase === 'done'
 
   return (
