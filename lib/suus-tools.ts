@@ -624,7 +624,13 @@ Retourneert { action: "render_form", ... } — de frontend rendert direct een be
       body:      z.string().describe('Volledige tekst van de note'),
       userId:    z.string().nullish().describe('ghl_user_id van de medewerker — weglaten als onbekend'),
     }),
-    execute: async ({ contactId, body, userId }) => noteCreate(contactId, body, userId ?? ''),
+    execute: async ({ contactId, body, userId }) => {
+      if (!contactId || contactId.length < 10 || !/^[a-zA-Z0-9]+$/.test(contactId)) {
+        console.error('[note_create] invalid contactId:', contactId)
+        return { success: false, error: `Ongeldig contactId "${contactId}" — doe eerst contact_zoek om het echte GHL ID op te halen.` }
+      }
+      return noteCreate(contactId, body, userId ?? '')
+    },
   }),
 
   note_update: tool({
@@ -656,6 +662,11 @@ Retourneert { action: "render_form", ... } — de frontend rendert direct een be
       assignedTo: z.string().nullish().describe('GHL user ID — gebruik ALTIJD de "GHL user ID" uit de sessiecontext tenzij expliciet een collega gevraagd wordt'),
     }),
     execute: async ({ contactId, assignedTo, body, ...data }) => {
+      // Guard against placeholder IDs the LLM sometimes hallucinates
+      if (!contactId || contactId.length < 10 || !/^[a-zA-Z0-9]+$/.test(contactId)) {
+        console.error('[task_create] invalid contactId:', contactId)
+        return { success: false, error: `Ongeldig contactId "${contactId}" — doe eerst contact_zoek om het echte GHL ID op te halen.` }
+      }
       const res = await taskCreate(contactId, { ...data, body: body ?? undefined, assignedTo: assignedTo ?? undefined })
       const r = res as { task?: GHLTask; error?: string; message?: string }
       if (!r.task && (r.error || r.message)) {
