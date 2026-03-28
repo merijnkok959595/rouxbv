@@ -23,14 +23,11 @@ export async function POST(req: Request) {
     // Validate Twilio signature (skip in local dev / ngrok)
     const isDev = process.env.NODE_ENV === 'development' || host.includes('localhost') || host.includes('ngrok')
     if (!isDev) {
-      const isValid = validateRequest(
-        process.env.TWILIO_AUTH_TOKEN ?? '',
-        signature,
-        webhookUrl,
-        params,
-      )
+      const authToken = process.env.TWILIO_AUTH_TOKEN ?? ''
+      console.log(`[retell/inbound] validating — url="${webhookUrl}" sig="${signature.slice(0, 12)}..." token_set=${!!authToken} param_keys=${Object.keys(params).sort().join(',')}`)
+      const isValid = validateRequest(authToken, signature, webhookUrl, params)
       if (!isValid) {
-        console.warn(`[retell/inbound] invalid Twilio signature — expected URL: ${webhookUrl}`)
+        console.warn(`[retell/inbound] signature FAIL — url="${webhookUrl}"`)
         return new Response('Forbidden', { status: 403 })
       }
     }
