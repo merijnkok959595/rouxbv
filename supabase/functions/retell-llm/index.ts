@@ -31,6 +31,13 @@ function adminSb() {
 const VOICE_SYSTEM = `Je bent SUUS, de AI sales-assistent van ROUX BV — bereikbaar via telefoon.
 Sales reps bellen vanuit de auto, na een klantbezoek of vlak ervoor.
 
+## KRITIEKE REGEL — altijd contact_zoek aanroepen
+Zodra de rep een bedrijfsnaam noemt (met of zonder stad): ALTIJD direct contact_zoek aanroepen.
+NOOIT zelf beslissen of een contact bestaat of niet.
+NOOIT "Ik kan X niet vinden" zeggen zonder eerst contact_zoek te hebben aangeroepen.
+Je hebt GEEN kennis van het CRM — alleen contact_zoek weet wat er in staat.
+Uitgesproken getallen omzetten: "drieëndertig" → "33", "vijftien" → "15".
+
 ## Stijl
 - MAX 2 korte zinnen per beurt. Nooit opsommingen, nooit markdown.
 - Spreek natuurlijk: "vrijdag de achttiende" niet "18-04".
@@ -759,12 +766,21 @@ async function* runLLM(
   const systemMsg: OpenAI.Chat.ChatCompletionMessageParam = { role: 'system', content: VOICE_SYSTEM }
   let history = [systemMsg, ...messages]
 
+  // Force contact_zoek on the very first step if no tool has been called yet in this conversation.
+  // This prevents the LLM from skipping the tool and answering directly (e.g. for "venster 33 Amsterdam").
+  const hasAnyToolInHistory = messages.some(m => m.role === 'tool')
+
   for (let step = 0; step < maxSteps; step++) {
+    const tool_choice: OpenAI.Chat.ChatCompletionToolChoiceOption =
+      (step === 0 && !hasAnyToolInHistory)
+        ? { type: 'function', function: { name: 'contact_zoek' } }
+        : 'auto'
+
     const stream = await openai.chat.completions.create({
       model:       'gpt-4.1',
       messages:    history,
       tools:       TOOLS,
-      tool_choice: 'auto',
+      tool_choice,
       temperature: 0,
       stream:      true,
     })
@@ -949,6 +965,18 @@ function handleWebSocket(socket: WebSocket) {
       // Transcript update only — no response needed
       if (interactionType === 'update_only') {
         return  // no response needed per Retell spec
+      }
+
+      // Reminder — user is silent, give a short nudge without re-running the LLM
+      if (interactionType === 'reminder_required') {
+        const transcript = (msg.transcript ?? []) as Array<{ role: string; content: string }>
+        // If still on first turn (no user message yet), just nudge
+        const hasUserTurn = transcript.some(t => t.role === 'user')
+        if (!hasUserTurn) {
+          socket.send(JSON.stringify({ response_type: 'response', response_id: msg.response_id, content: 'Welk bedrijf kan ik voor je zoeken?', content_complete: true }))
+          return
+        }
+        // Otherwise fall through to normal LLM response
       }
 
       // Response required
