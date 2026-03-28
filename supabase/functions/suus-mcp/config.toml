@@ -1,0 +1,2 @@
+[functions.suus-mcp]
+verify_jwt = false
