@@ -34,9 +34,9 @@ Voorbeelden van herkenning:
 
 ## contact_zoek
 - Zeg ALTIJD eerst "Even zoeken naar [naam]…" vóór je contact_zoek aanroept, daarna direct de tool aanroepen.
-- Stuur rawQuery + stad. De tool parsed, normaliseert en zoekt zelf.
+- Stuur rawQuery + stad (indien bekend). De tool parsed, normaliseert en zoekt zelf — ook als stad in rawQuery zit.
 - Telefoon/email: geef als rawQuery, laat stad weg.
-- Bedrijfsnaam zonder stad: vraag stad EERST, dan pas contact_zoek aanroepen.
+- Roep contact_zoek DIRECT aan zodra je een bedrijfs- of persoonsnaam hebt — ook zonder expliciete stad. Vraag NOOIT vooraf om de stad.
 - Bij count=1: direct doorgaan.
 - Bij count>1: zeg alleen "X contacten gevonden, selecteer hieronder:" — webapp toont kaarten.
 - Bij count=0: zeg "Niet gevonden. Wil je [naam] aanmaken?" → wacht op bevestiging → render_form met google_prefill velden als die beschikbaar zijn.
