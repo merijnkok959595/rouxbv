@@ -19,10 +19,12 @@ export async function POST(req: Request) {
     const buffer   = Buffer.from(await audio.arrayBuffer())
     const mimeType = audio.type || 'audio/webm'
     // Pick an extension Whisper accepts based on mime type
-    const ext      = mimeType.includes('mp4') ? 'mp4'
-                   : mimeType.includes('ogg') ? 'ogg'
-                   : mimeType.includes('wav') ? 'wav'
-                   : mimeType.includes('mp3') ? 'mp3'
+    const ext      = mimeType.includes('wav')  ? 'wav'
+                   : mimeType.includes('mp4')  ? 'mp4'
+                   : mimeType.includes('mp3')  ? 'mp3'
+                   : mimeType.includes('ogg')  ? 'ogg'
+                   : mimeType.includes('aac')  ? 'aac'
+                   : mimeType.includes('webm') ? 'webm'
                    : 'webm'
 
     const file = await toFile(buffer, `recording.${ext}`, { type: mimeType })

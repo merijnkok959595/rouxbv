@@ -184,12 +184,17 @@ export default function SuusPage() {
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : ''
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : ''
       const mr = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 128000 })
       mr.ondataavailable = e => { if (e.data.size > 0) allChunks.push(e.data) }
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
-        const blobType = mimeType || 'audio/webm'
+        // Use recorder's actual mimeType (important on iOS Safari which uses audio/mp4)
+        const blobType = mr.mimeType || mimeType || 'audio/webm'
         const blob     = new Blob(allChunks, { type: blobType })
         let finalBlob  = blob, fileName = 'recording.webm'
         try {
