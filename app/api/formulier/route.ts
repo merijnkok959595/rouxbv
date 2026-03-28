@@ -127,7 +127,11 @@ export async function POST(req: Request) {
       } else {
         const created = await contactCreate(ghlData)
         ghlId = created?.contact?.id ?? null
-        console.log(`[formulier] GHL created contact ${ghlId} (${company})`)
+        if (!ghlId) {
+          console.error(`[formulier] GHL create FAILED for "${company}":`, JSON.stringify(created))
+        } else {
+          console.log(`[formulier] GHL created contact ${ghlId} (${company})`)
+        }
       }
 
       // Create intake note in GHL if notes were provided
