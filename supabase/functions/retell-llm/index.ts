@@ -19,7 +19,6 @@ const openai   = new OpenAI({ apiKey: Deno.env.get('OPENAI_API_KEY')! })
 const ORG_ID   = () => Deno.env.get('DEFAULT_ORGANIZATION_ID') ?? ''
 const GHL_KEY  = () => Deno.env.get('GHL_API_KEY') ?? ''
 const GHL_LOC  = () => Deno.env.get('GHL_LOCATION_ID') ?? ''
-const MAPS_KEY = () => Deno.env.get('GOOGLE_MAPS_API_KEY') ?? ''
 
 function adminSb() {
   return createClient(
@@ -59,15 +58,37 @@ Vraag stap voor stap: voornaam → bedrijfsnaam → type (Lead/Klant) → adres 
 contact_zoek → calendar_get_free_slot → noem 1 optie → bevestig → calendar_create.
 Gebruik calendarId en userId uit de context — nooit vragen.
 
-## Kernregels
-- NOOIT een contactId raden — altijd contact_zoek eerst
-- Na contact_zoek met resultaat ALTIJD doorgaan naar de volgende actie
-- Bij count=1: direct doorgaan zonder bevestiging
-- Bij count>1: "Ik zie [n] contacten: [naam1] in [stad1] of [naam2] in [stad2] — welke?"
-- Bij count=0: herzoek op eerste woord → nog 0 → "Wil je dat ik [naam] aanmaak?"
-- Bevestig ALTIJD vóór schrijfactie: "Ik ga een notitie aanmaken voor [naam] — klopt dat?"
-- Na actie: "Gedaan! Nog iets anders?"
-- Nooit interne IDs uitspreken`
+## Kernregels zoeken
+- Verzamel ALTIJD bedrijfsnaam én plaatsnaam vóór je contact_zoek aanroept
+- Als de rep alleen een naam noemt zonder stad: vraag eerst "In welke plaats?"
+- Als de rep naam + stad in één zin noemt: direct zoeken, niet opnieuw vragen
+- Uitgesproken getallen → cijfers: "drieëndertig"→"33", "vijftien"→"15"
+- Stuur city mee als parameter bij contact_zoek
+- Bij count=1: direct actie, NOOIT bevestiging vragen
+- Bij count>1: "Ik zie [n]: [naam1] in [stad1] of [naam2] in [stad2] — welke?"
+- Bij count=0: automatische correctie via Google — als dat ook faalt → "Kun je de naam spellen?"
+- Bij correctie van rep: ALTIJD opnieuw contact_zoek — nooit oude naam gebruiken
+
+## Schrijfacties — KRITIEKE REGELS
+**note_create en task_create: NOOIT bevestiging vragen — direct uitvoeren.**
+Reden: de rep rijdt, een extra vraag is onacceptabel. Vertrouw wat de rep zegt.
+
+Verplichte volgorde in ÉÉN beurt (geen splits over meerdere beurten):
+1. contact_zoek("[naam]") — ook als contact eerder al gevonden was
+2. schrijfactie(contact_id uit stap 1, ...)
+3. Zeg: "Gedaan! [actie] aangemaakt voor [naam]. Nog iets?"
+
+contact_create en calendar_create: WEL bevestigen vóór uitvoeren.
+
+- Na actie: "Gedaan! Nog iets?"
+- Nooit interne IDs uitspreken
+
+## Bronvermelding (VERPLICHT)
+Tool resultaten bevatten altijd een [BRON:] tag. Gebruik dit in je antwoord:
+- [BRON: CRM systeem] → zeg "staat in ons systeem" of "heb ik gevonden in het systeem"
+- [BRON: Google — NIET in CRM systeem] → zeg "heb ik gevonden via Google, maar staat nog niet in ons systeem"
+- [BRON: niet in systeem] → zeg "kan ik niet vinden in ons systeem"
+Spreek de [BRON:] tag zelf nooit uit — alleen de betekenis ervan.`
 
 // ─── GHL helpers ──────────────────────────────────────────────────────────────
 async function ghl(path: string, opts: RequestInit = {}) {
@@ -93,11 +114,12 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'contact_zoek',
-      description: 'Zoek contacten op naam, bedrijf of stad in het CRM.',
+      description: 'Zoek contacten op naam of bedrijf in het CRM. Gebruik ALLEEN de bedrijfsnaam of persoonsnaam. Converteer uitgesproken getallen naar cijfers: "drieëndertig" → "33". Geef city mee als de rep een stad noemde — dit helpt bij STT-correctie.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Zoekopdracht: bedrijfsnaam, contactnaam of stad' },
+          query: { type: 'string', description: 'Bedrijfsnaam of contactnaam. Getallen in cijfers.' },
+          city:  { type: 'string', description: 'Stad die de rep noemde (optioneel, helpt bij correctie)' },
         },
         required: ['query'],
       },
@@ -234,13 +256,14 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'google_zoek_adres',
-      description: 'Zoek een bedrijfsadres via Google Places.',
+      description: 'Zoek het exacte adres van een bedrijf via Google Places. Geef bedrijfsnaam + stad mee. Retourneert het beste match-adres of "niet gevonden".',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Bedrijfsnaam + stad' },
+          bedrijfsnaam: { type: 'string', description: 'Naam van het bedrijf zoals de gebruiker het noemde' },
+          plaatsnaam:   { type: 'string', description: 'Stad of gemeente' },
         },
-        required: ['query'],
+        required: ['bedrijfsnaam'],
       },
     },
   },
@@ -254,22 +277,105 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
   },
 ]
 
+// ─── Dutch spoken-number → digit normaliser ───────────────────────────────────
+const NL_NUMBERS: [RegExp, string][] = [
+  [/\bnul\b/gi, '0'], [/\één\b|\béén\b|\been\b/gi, '1'], [/\btwee\b/gi, '2'],
+  [/\bdrie\b/gi, '3'], [/\bvier\b/gi, '4'], [/\bvijf\b/gi, '5'],
+  [/\bzes\b/gi, '6'], [/\bzeven\b/gi, '7'], [/\bacht\b/gi, '8'],
+  [/\bnegen\b/gi, '9'], [/\btien\b/gi, '10'], [/\belf\b/gi, '11'],
+  [/\btwaalf\b/gi, '12'], [/\bdertien\b/gi, '13'], [/\bveertien\b/gi, '14'],
+  [/\bvijftien\b/gi, '15'], [/\bzestien\b/gi, '16'], [/\bzestien\b/gi, '16'],
+  [/\bzeventien\b/gi, '17'], [/\bachttien\b/gi, '18'], [/\bnegentien\b/gi, '19'],
+  [/\btwintig\b/gi, '20'], [/\beenentwintig\b/gi, '21'], [/\btweeëntwintig\b/gi, '22'],
+  [/\bdrieëntwintig\b/gi, '23'], [/\bvierentwintig\b/gi, '24'], [/\bvijfentwintig\b/gi, '25'],
+  [/\bzesentwintig\b/gi, '26'], [/\bzevenentwintig\b/gi, '27'], [/\bachtentwintig\b/gi, '28'],
+  [/\bnegenentwintig\b/gi, '29'], [/\bdertig\b/gi, '30'], [/\beenendertig\b/gi, '31'],
+  [/\btweeëndertig\b/gi, '32'], [/\bdrieëndertig\b/gi, '33'], [/\bvierendertig\b/gi, '34'],
+  [/\bvijfendertig\b/gi, '35'], [/\bzesendertig\b/gi, '36'], [/\bzevenendertig\b/gi, '37'],
+  [/\bachtendertig\b/gi, '38'], [/\bnegendertig\b/gi, '39'], [/\bveertig\b/gi, '40'],
+  [/\bvijftig\b/gi, '50'], [/\bzestig\b/gi, '60'], [/\bzeventig\b/gi, '70'],
+  [/\btachtig\b/gi, '80'], [/\bnegtig\b|\bnegentig\b/gi, '90'],
+  [/\bhonderd\b/gi, '100'],
+]
+
+function normaliseQuery(q: string): string {
+  let s = q
+  // Convert spoken Dutch numbers to digits
+  for (const [re, digit] of NL_NUMBERS) s = s.replace(re, digit)
+  // Collapse consecutive digit tokens: "3 3" → "33"
+  s = s.replace(/\b(\d+)\s+(\d+)\b/g, '$1$2')
+  // Strip Dutch tussenvoegsels in the MIDDLE of a query (not at the start)
+  // e.g. "Nars van het Hemelrijk" → "Nars Hemelrijk"
+  s = s.replace(/\s+(van\s+de[rnm]?|van\s+het|van\s+'t|van|de[rnm]?|het|'t)\s+/gi, ' ')
+  return s.trim()
+}
+
 // ─── Tool executor ────────────────────────────────────────────────────────────
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
   try {
     if (name === 'contact_zoek') {
-      const query = String(args.query ?? '')
-      const res = await ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(query)}&limit=5`)
-      const contacts = (res.contacts ?? []) as Array<Record<string, unknown>>
-      if (!contacts.length) return 'Geen contacten gevonden.'
-      const lines = contacts.map((c, i) => {
-        const name    = [c.firstName, c.lastName].filter(Boolean).join(' ')
-        const label   = c.companyName ? `${c.companyName}${name ? ` (${name})` : ''}` : name
-        const address = [c.address1, c.postalCode, c.city].filter(Boolean).join(', ')
-        const contact = [c.phone, c.email].filter(Boolean).join(' | ')
-        return `${i + 1}. contactId:${c.id} — ${label}${address ? ` — ${address}` : ''}${contact ? ` | ${contact}` : ''}`
-      })
-      return lines.join('\n') + (contacts.length > 1 ? '\n\nWelke bedoel je?' : '')
+      const originalQuery = normaliseQuery(String(args.query ?? ''))
+      const city = String(args.city ?? '')
+
+      const ghlSearch = async (q: string) => {
+        const r = await ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(q)}&limit=5`)
+        return (r.contacts ?? []) as Array<Record<string, unknown>>
+      }
+
+      const formatContacts = (contacts: Array<Record<string, unknown>>, bron = 'CRM systeem') => {
+        const lines = contacts.map((c, i) => {
+          const cname   = [c.firstName, c.lastName].filter(Boolean).join(' ')
+          const label   = c.companyName ? `${c.companyName}${cname ? ` (${cname})` : ''}` : cname
+          const address = [c.address1, c.postalCode, c.city].filter(Boolean).join(', ')
+          const contact = [c.phone, c.email].filter(Boolean).join(' | ')
+          return `${i + 1}. contact_id="${c.id}" naam="${label}"${address ? ` adres="${address}"` : ''}${contact ? ` contact="${contact}"` : ''}`
+        })
+        return `[BRON: ${bron}]\n` + lines.join('\n') + (contacts.length > 1 ? '\n\nWelke bedoel je?' : '\n\nGebruik het contact_id hierboven voor vervolgacties.')
+      }
+
+      // Step 1: exact query
+      let contacts = await ghlSearch(originalQuery)
+      if (contacts.length) return formatContacts(contacts)
+
+      // Step 2: prefix fallback (first 4 chars)
+      if (originalQuery.length > 4) {
+        contacts = await ghlSearch(originalQuery.slice(0, 4))
+        if (contacts.length) return formatContacts(contacts, 'CRM systeem — gedeeltelijke naam')
+      }
+
+      // Step 3: Outscraper "did you mean?" — Google Maps fuzzy corrects STT errors
+      const osQuery = city ? `${originalQuery} ${city}` : originalQuery
+      try {
+        const osRes = await fetch(
+          `https://api.outscraper.cloud/google-maps-search?query=${encodeURIComponent(osQuery)}&limit=5&async=false`,
+          { headers: { 'X-API-KEY': Deno.env.get('OUTSCRAPER_API_KEY') ?? '' } }
+        ).then(r => r.json())
+        const places: Array<Record<string, unknown>> = ((osRes.data ?? [[]])[0] ?? []).slice(0, 5)
+
+        if (places.length) {
+          // GPT picks the most plausible match given the misheared query
+          const candidates = places.map((p, i) => `${i}: ${p.name} (${p.city ?? ''})`).join('\n')
+          const correction = await openai.chat.completions.create({
+            model: 'gpt-4.1-mini', temperature: 0,
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: 'STT heeft een bedrijfsnaam mogelijk verkeerd getranscribeerd. Kies het meest plausibele Google Maps resultaat als correctie. JSON: {"match": true, "index": <n>, "corrected_name": "<naam>"} of {"match": false}' },
+              { role: 'user',   content: `STT zei: "${originalQuery}"\nGoogle Maps kandidaten:\n${candidates}` },
+            ],
+          })
+          let verdict: Record<string, unknown> = { match: false }
+          try { verdict = JSON.parse(correction.choices[0].message.content ?? '{}') } catch { /* ignore */ }
+
+          if (verdict.match) {
+            const correctedName = String(verdict.corrected_name ?? places[Number(verdict.index ?? 0)].name ?? '')
+            contacts = await ghlSearch(correctedName)
+            if (contacts.length) return formatContacts(contacts, `CRM systeem — naam gecorrigeerd van "${originalQuery}" naar "${correctedName}"`)
+          }
+        }
+      } catch { /* Outscraper error — fall through to spelling request */ }
+
+      // Step 4: nothing found — ask rep to spell
+      return `[BRON: niet gevonden] Geen contact gevonden voor "${originalQuery}". Vraag de rep om de naam te spellen (bijv. "V-E-N-S-T-E-R").`
     }
 
     if (name === 'contact_briefing') {
@@ -369,12 +475,57 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     }
 
     if (name === 'google_zoek_adres') {
-      const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(String(args.query))}&key=${MAPS_KEY()}&language=nl&region=nl`
-      const res = await fetch(url).then(r => r.json())
-      const place = res.results?.[0]
-      if (!place) return 'Geen adres gevonden via Google.'
-      const addr = place.formatted_address ?? ''
-      return `Gevonden adres: ${addr} (place_id: ${place.place_id})`
+      const bedrijfsnaam = normaliseQuery(String(args.bedrijfsnaam ?? ''))
+      const plaatsnaam   = String(args.plaatsnaam ?? '')
+      const queryStr     = plaatsnaam ? `${bedrijfsnaam} ${plaatsnaam}` : bedrijfsnaam
+
+      // Step 1: Outscraper Google Maps Search — top 5 results
+      const osUrl = `https://api.outscraper.cloud/google-maps-search?query=${encodeURIComponent(queryStr)}&limit=5&async=false`
+      const osRes = await fetch(osUrl, {
+        headers: { 'X-API-KEY': Deno.env.get('OUTSCRAPER_API_KEY') ?? '' },
+      }).then(r => r.json())
+
+      const places: Array<Record<string, unknown>> = ((osRes.data ?? [[]])[0] ?? []).slice(0, 5)
+      if (!places.length) return `[BRON: niet gevonden] Geen adres gevonden voor "${queryStr}". Vraag de gebruiker om naam of stad te verduidelijken.`
+
+      // Step 2: GPT-4.1-mini picks the best match
+      const candidateList = places.map((p, i) =>
+        `${i}: ${p.name} — ${p.address ?? p.street + ', ' + p.postal_code + ' ' + p.city}`
+      ).join('\n')
+
+      const verifyRes = await openai.chat.completions.create({
+        model:           'gpt-4.1-mini',
+        temperature:     0,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role:    'system',
+            content: `Je krijgt een zoekopdracht en Google Maps resultaten. Kies het BESTE match.
+JSON formaat:
+- Match: {"match": true, "index": <n>}
+- Geen match: {"match": false}
+Wees streng: alleen "match: true" als je zeker bent.`,
+          },
+          {
+            role:    'user',
+            content: `Zoekopdracht: "${queryStr}"\n\nCandidaten:\n${candidateList}`,
+          },
+        ],
+      })
+
+      let verdict: Record<string, unknown> = { match: false }
+      try { verdict = JSON.parse(verifyRes.choices[0].message.content ?? '{}') } catch { /* ignore */ }
+
+      if (!verdict.match) return `[BRON: niet gevonden] Geen betrouwbaar adres gevonden voor "${queryStr}". Vraag de gebruiker om naam of stad te verduidelijken.`
+
+      const p      = places[Number(verdict.index ?? 0)] ?? places[0]
+      const name   = String(p.name   ?? '')
+      const street = String(p.street ?? (String(p.address ?? '')).split(',')[0] ?? '')
+      const city   = String(p.city   ?? plaatsnaam ?? '')
+      const postal = String(p.postal_code ?? '')
+      const phone  = p.phone ? ` | tel: ${p.phone}` : ''
+
+      return `[BRON: Google — NIET in CRM systeem] Gevonden: ${name} — ${street}, ${postal} ${city}${phone}`.trim()
     }
 
     if (name === 'get_team_members') {
@@ -411,6 +562,17 @@ async function resolveEmployee(fromNumber: string) {
   } catch { return null }
 }
 
+async function resolveEmployeeById(id: string) {
+  try {
+    const { data } = await adminSb()
+      .from('team_members')
+      .select('naam, functie, ghl_user_id, calendar_id, phone')
+      .eq('id', id)
+      .single()
+    return data ?? null
+  } catch { return null }
+}
+
 // ─── Context builder ──────────────────────────────────────────────────────────
 function buildContext(employee: Record<string, unknown> | null): OpenAI.Chat.ChatCompletionMessageParam[] {
   const now      = new Date()
@@ -439,6 +601,7 @@ function buildContext(employee: Record<string, unknown> | null): OpenAI.Chat.Cha
 async function* runLLM(
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
   onToken: (t: string) => void,
+  onToolResult: (name: string, args: Record<string, unknown>, result: string) => void = () => {},
   maxSteps = 12,
 ): AsyncGenerator<string> {
   const systemMsg: OpenAI.Chat.ChatCompletionMessageParam = { role: 'system', content: VOICE_SYSTEM }
@@ -496,6 +659,7 @@ async function* runLLM(
       let parsedArgs: Record<string, unknown> = {}
       try { parsedArgs = JSON.parse(tc.argsJson) } catch { /* ignore */ }
       const result = await executeTool(tc.name, parsedArgs)
+      onToolResult(tc.name, parsedArgs, result)
       history.push({ role: 'tool', tool_call_id: tc.id, content: result })
     }
   }
@@ -506,38 +670,69 @@ async function streamResponse(
   socket: WebSocket,
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
   responseId: number,
+  onToolResult: (name: string, args: Record<string, unknown>, result: string) => void = () => {},
 ) {
-  let buffer = ''
-  for await (const token of runLLM(messages, () => {})) {
-    buffer += token
-    const words = buffer.split(' ')
-    buffer = words.pop() ?? ''
-    for (const word of words) {
-      if (!word) continue
-      socket.send(JSON.stringify({
-        response_type: 'response', response_id: responseId,
-        content: word + ' ', content_complete: false,
-      }))
-    }
-  }
-  if (buffer.trim()) {
+  for await (const token of runLLM(messages, () => {}, onToolResult)) {
     socket.send(JSON.stringify({
-      response_type: 'response', response_id: responseId,
-      content: buffer, content_complete: false,
+      response_type:    'response',
+      response_id:      responseId,
+      content:          token,
+      content_complete: false,
+      end_call:         false,
     }))
   }
+  // Final complete marker
   socket.send(JSON.stringify({
-    response_type: 'response', response_id: responseId,
-    content: '', content_complete: true,
+    response_type:    'response',
+    response_id:      responseId,
+    content:          '',
+    content_complete: true,
+    end_call:         false,
   }))
+  console.log(`[retell-llm] streamResponse done, id=${responseId}`)
 }
 
 // ─── WebSocket handler ────────────────────────────────────────────────────────
 function handleWebSocket(socket: WebSocket) {
   let employee: Record<string, unknown> | null = null
   let contextMessages: OpenAI.Chat.ChatCompletionMessageParam[] = []
+  let isWebCall = false
+  let callMetadata: Record<string, string> | null = null
 
-  console.log('[retell-llm] ws connected')
+  // Session contact memory — persists found contacts across turns within this call
+  const sessionContacts: Array<{ contact_id: string; naam: string; raw: string }> = []
+
+  function onToolResult(name: string, _args: Record<string, unknown>, result: string) {
+    if (name === 'contact_zoek' && result.includes('contact_id=')) {
+      // Parse all contacts from the result and store in session
+      const matches = [...result.matchAll(/contact_id="([^"]+)"\s+naam="([^"]+)"/g)]
+      for (const m of matches) {
+        const id = m[1], naam = m[2]
+        if (!sessionContacts.find(c => c.contact_id === id)) {
+          sessionContacts.push({ contact_id: id, naam, raw: result })
+          console.log(`[retell-llm] session contact stored: ${naam} (${id})`)
+        }
+      }
+    }
+  }
+
+  function buildSessionContext(): OpenAI.Chat.ChatCompletionMessageParam[] {
+    if (!sessionContacts.length) return []
+    const lines = sessionContacts.map(c => `contact_id="${c.contact_id}" naam="${c.naam}"`)
+    return [
+      { role: 'user',      content: `[Contacten gevonden eerder in dit gesprek]\n${lines.join('\n')}\nGebruik deze contact_id's direct voor schrijfacties — geen nieuwe contact_zoek nodig tenzij gevraagd.` },
+      { role: 'assistant', content: 'Begrepen, ik gebruik deze contact_id\'s.' },
+    ]
+  }
+
+  // Send config when socket opens — must wait for OPEN state in Deno
+  socket.onopen = () => {
+    socket.send(JSON.stringify({
+      response_type: 'config',
+      config: { auto_reconnect: true, call_details: true },
+    }))
+    console.log('[retell-llm] socket open, config sent')
+  }
 
   socket.onmessage = async (event: MessageEvent) => {
     try {
@@ -546,57 +741,62 @@ function handleWebSocket(socket: WebSocket) {
 
       // Retell ping
       if (interactionType === 'ping_pong') {
-        socket.send(JSON.stringify({ response_type: 'pong' }))
+        socket.send(JSON.stringify({ response_type: 'ping_pong', timestamp: msg.timestamp }))
         return
       }
 
-      // First event: Retell sends call details — resolve employee and send greeting
+      // First event: Retell sends call details
       if (interactionType === 'call_details') {
-        const fromNumber = String(msg.call?.from_number ?? '').replace('whatsapp:', '').replace(/^\+/, '')
-        employee = await resolveEmployee(fromNumber)
-        contextMessages = buildContext(employee)
-        console.log(`[retell-llm] call_details from=${fromNumber} employee=${employee?.naam ?? 'unknown'}`)
+        const callType = msg.call?.call_type as string
+        const metadata = msg.call?.metadata as Record<string, string> | undefined
+        isWebCall    = callType === 'web_call'
+        callMetadata = metadata ?? null
 
-        if (!employee) {
-          // Still send a graceful response — Retell expects a greeting
-          socket.send(JSON.stringify({
-            response_type: 'response', response_id: 0,
-            content: 'Dit nummer is niet geautoriseerd voor SUUS. Tot ziens.',
-            content_complete: true,
-          }))
-          return
-        }
-
-        // Send initial greeting (empty transcript → LLM generates greeting from context)
-        await streamResponse(socket, contextMessages, 0)
-        return
-      }
-
-      // Transcript update only — no response needed
-      if (interactionType === 'update_only') {
-        socket.send(JSON.stringify({
-          response_type: 'response', response_id: msg.response_id,
-          content: '', content_complete: true,
-        }))
-        return
-      }
-
-      // Response required
-      if (interactionType === 'response_required' || interactionType === 'reminder_required') {
-        // In case call_details was missed, try to init from this message
-        if (!employee) {
+        if (isWebCall) {
+          employee = {
+            naam:        metadata?.employee_naam ?? '',
+            functie:     null,
+            ghl_user_id: metadata?.ghl_user_id   ?? null,
+            calendar_id: metadata?.calendar_id   ?? null,
+            phone:       null,
+          }
+          contextMessages = buildContext(employee)
+        } else {
           const fromNumber = String(msg.call?.from_number ?? '').replace('whatsapp:', '').replace(/^\+/, '')
           employee = await resolveEmployee(fromNumber)
           contextMessages = buildContext(employee)
         }
 
+        // Send greeting on response_id: 0 — this is how the official Retell demo works
+        const voornaam = ((employee as Record<string,unknown>)?.naam as string ?? '').split(' ')[0]
+        const greeting = voornaam
+          ? `Hoi ${voornaam}, hoe kan ik je helpen?`
+          : `Hoi, hoe kan ik je helpen?`
+        socket.send(JSON.stringify({ response_type: 'response', response_id: 0, content: greeting, content_complete: true, end_call: false }))
+        console.log(`[retell-llm] call_details done, greeting sent, naam=${voornaam || '?'}`)
+        return
+      }
+
+      // Transcript update only — no response needed
+      if (interactionType === 'update_only') {
+        return  // no response needed per Retell spec
+      }
+
+      // Response required
+      if (interactionType === 'response_required' || interactionType === 'reminder_required') {
+        // Fallback: call_details might have been missed
         if (!employee) {
-          socket.send(JSON.stringify({
-            response_type: 'response', response_id: msg.response_id,
-            content: 'Dit nummer is niet geautoriseerd voor SUUS.',
-            content_complete: true,
-          }))
-          return
+          if (isWebCall && callMetadata) {
+            employee = { naam: callMetadata.employee_naam ?? '', functie: null, ghl_user_id: callMetadata.ghl_user_id ?? null, calendar_id: callMetadata.calendar_id ?? null, phone: null }
+          } else if (!isWebCall) {
+            const fromNumber = String(msg.call?.from_number ?? '').replace('whatsapp:', '').replace(/^\+/, '')
+            employee = await resolveEmployee(fromNumber)
+            if (!employee) {
+              socket.send(JSON.stringify({ response_type: 'response', response_id: msg.response_id, content: 'Dit nummer is niet geautoriseerd voor SUUS.', content_complete: true }))
+              return
+            }
+          }
+          contextMessages = buildContext(employee)
         }
 
         const transcript: OpenAI.Chat.ChatCompletionMessageParam[] = (msg.transcript ?? []).map(
@@ -606,7 +806,19 @@ function handleWebSocket(socket: WebSocket) {
           })
         )
 
-        await streamResponse(socket, [...contextMessages, ...transcript], msg.response_id)
+        const sessionCtx = buildSessionContext()
+        console.log(`[retell-llm] → openai, naam=${(employee as Record<string,unknown>)?.naam ?? '?'}, turns=${transcript.length}, session_contacts=${sessionContacts.length}, id=${msg.response_id}`)
+        try {
+          await streamResponse(
+            socket,
+            [...contextMessages, ...sessionCtx, ...transcript],
+            msg.response_id,
+            onToolResult,
+          )
+        } catch (llmErr) {
+          console.error('[retell-llm] streamResponse failed:', llmErr)
+          socket.send(JSON.stringify({ response_type: 'response', response_id: msg.response_id, content: 'Er is iets misgegaan, probeer opnieuw.', content_complete: true }))
+        }
       }
 
     } catch (err) {

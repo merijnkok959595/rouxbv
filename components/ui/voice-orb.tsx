@@ -111,23 +111,6 @@ export function VoiceOrb({
         />
       )}
 
-      {/* ── Speaking: wave bars ─────────────────────────────────────── */}
-      {isSpeaking && (
-        <div className="absolute inset-0 flex items-end justify-center pb-[18%] gap-[3px]">
-          {[8, 14, 20, 14, 8].map((h, i) => (
-            <div
-              key={i}
-              className="rounded-full animate-wave-agent"
-              style={{
-                width: 3,
-                height: h,
-                background: 'rgba(255,255,255,0.88)',
-                animationDelay: `${i * 0.1}s`,
-              }}
-            />
-          ))}
-        </div>
-      )}
 
       {/* ── Satin sheen (top-left highlight) ────────────────────────── */}
       <div

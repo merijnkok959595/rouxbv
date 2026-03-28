@@ -31,6 +31,8 @@ export async function POST(req: Request) {
       file,
       model:    'gpt-4o-transcribe',
       language: 'nl',
+      prompt:   'Dit is een Nederlandse spraakopname voor een CRM-assistent genaamd SUUS. De gebruiker praat over contacten, leads, afspraken, taken, bedrijven, namen, telefoonnummers, e-mailadressen en steden in Nederland.',
+      temperature: 0,
     })
 
     return NextResponse.json({ text: transcription.text })

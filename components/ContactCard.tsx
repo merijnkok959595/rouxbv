@@ -1,6 +1,6 @@
 'use client'
 
-import { MapPin, Phone, Plus, Pencil, Eye, User } from 'lucide-react'
+import { MapPin, Phone, Plus, Pencil, Eye, User, Store } from 'lucide-react'
 import type { ContactFormPrefilled } from './ContactForm'
 
 // ── ContactFormCard ───────────────────────────────────────────────────────────
@@ -45,6 +45,9 @@ export function ContactFormCard({ prefilled, done, onClick }: ContactFormCardPro
           )}
           {prefilled.phone && (
             <span className="inline-flex items-center gap-0.5 text-[11px] text-muted"><Phone size={10} /> {prefilled.phone}</span>
+          )}
+          {prefilled.groothandel && (
+            <span className="inline-flex items-center gap-0.5 text-[11px] text-muted"><Store size={10} /> {prefilled.groothandel}</span>
           )}
         </div>
       </div>

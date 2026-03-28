@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { contactUpdate, buildCustomFields } from '@/lib/ghl-client'
+import { adminSupabase } from '@/lib/supabase'
 
 export const runtime = 'nodejs'
 
@@ -48,6 +49,47 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     })
 
     const updatedId = result?.contact?.id ?? contactId
+
+    // Mirror to Supabase contacts (leads list) — upsert by ghl_id in custom_fields
+    const orgId = process.env.ORGANIZATION_ID
+    if (orgId) {
+      const sb = adminSupabase()
+      // Find existing Supabase row by GHL contact ID stored in custom_fields
+      const { data: existing } = await sb
+        .from('contacts')
+        .select('id')
+        .eq('organization_id', orgId)
+        .eq('custom_fields->>ghl_id', updatedId)
+        .maybeSingle()
+
+      const patch = {
+        company_name: body.companyName ?? undefined,
+        first_name:   body.firstName   || null,
+        last_name:    body.lastName    || null,
+        email:        body.email       || null,
+        phone:        body.phone       || null,
+        address1:     body.address1    || null,
+        postcode:     body.postalCode  || null,
+        city:         body.city        || null,
+        ...(body.klantType ? { type: body.klantType.toLowerCase() } : {}),
+        custom_fields: {
+          ghl_id:            updatedId,
+          groothandel:       body.groothandel       || null,
+          pos_materiaal:     body.posMateriaal      || null,
+          kortingsafspraken: body.kortingsafspraken || null,
+          producten:         body.producten         || null,
+          opening_hours:     body.openingHours      || null,
+          website:           body.website           || null,
+        },
+      }
+
+      if (existing?.id) {
+        await sb.from('contacts').update(patch).eq('id', existing.id)
+      } else {
+        await sb.from('contacts').insert({ ...patch, organization_id: orgId, source: 'suus' })
+      }
+    }
+
     return NextResponse.json({ contactId: updatedId, companyName: body.companyName })
   } catch (err) {
     console.error('[contact-update]', err)

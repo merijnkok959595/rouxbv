@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Check, Loader2, MapPin, Phone, Globe, User, Building2, ShoppingCart } from 'lucide-react'
+import { X, Check, Loader2, MapPin, Phone, Globe, User, Building2, ShoppingCart, Store } from 'lucide-react'
 import { cn }              from '@/lib/utils'
 import { Field, TwoCol, FieldSection } from '@/components/ui/field'
 
@@ -291,10 +291,9 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
         </Field>
       </FieldSection>
 
-      {/* Section: Extra */}
-      <FieldSection title="Extra" icon={<ShoppingCart size={13} />}>
-        <Field label="Groothandel">
-          {/* datalist = free text + autocomplete for all GHL options */}
+      {/* Section: Groothandel */}
+      <FieldSection title="Groothandel" icon={<Store size={13} />}>
+        <Field label="Groothandel leverancier">
           <input
             value={groothandel}
             onChange={e => setGroothandel(e.target.value)}
@@ -307,7 +306,10 @@ export default function ContactForm({ prefilled = {}, onSuccess, onCancel }: Con
             {GROOTHANDEL_OPTIONS.map(g => <option key={g} value={g} />)}
           </datalist>
         </Field>
+      </FieldSection>
 
+      {/* Section: Extra */}
+      <FieldSection title="Extra" icon={<ShoppingCart size={13} />}>
         <Field label="Kortingsafspraken">
           <div className="flex gap-1.5">
             {(['Ja', 'Nee'] as const).map(v => (

@@ -4,7 +4,7 @@ import { useRef, useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   Briefcase, User, MapPin, Tag, FileText, RotateCcw,
-  Flag, Loader2, ArrowUpRight, Mic,
+  Flag, Loader2, ArrowUpRight, Mic, Store,
 } from 'lucide-react'
 import PlacesCompanyInput, { type PlaceResult } from '@/components/PlacesCompanyInput'
 import { BEURS_OPTIONS, buildSource, defaultBeursName, SOURCE_STORAGE_KEY } from '@/lib/beurs-sources'
@@ -12,6 +12,7 @@ import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input'
 import 'react-phone-number-input/style.css'
 import { Field, TwoCol, FieldSection } from '@/components/ui/field'
 import { cn } from '@/lib/utils'
+import { GROOTHANDEL_OPTIONS } from '@/components/ContactForm'
 
 const MONO = "'SF Mono','Fira Code',monospace"
 const YEAR    = new Date().getFullYear()
@@ -30,6 +31,7 @@ type SavedContact = {
   address: string; city: string; postcode: string; country: string
   first_name: string; last_name: string; phone: string; email: string
   contact_type: string; notes: string; opening_hours: PlaceResult['opening_hours']
+  groothandel: string
 }
 type TeamMember = { id: string; naam: string; color: string | null; functie?: string | null }
 type Phase = 'idle' | 'saving' | 'enriching' | 'done'
@@ -57,6 +59,7 @@ export default function FormulierPage() {
   const [aangemeldDoor,  setAangemeldDoor]  = useState('')
   const [creatorOpen,    setCreatorOpen]    = useState(false)
   const creatorRef = useRef<HTMLDivElement>(null)
+  const [groothandel,  setGroothandel]  = useState('')
   const [notes,        setNotes]        = useState('')
   const [recording,    setRecording]    = useState(false)
   const [transcribing, setTranscribing] = useState(false)
@@ -199,7 +202,7 @@ export default function FormulierPage() {
   function startOver() {
     formRef.current?.reset()
     setAddress(''); setCity(''); setPostcode(''); setCountry('Nederland')
-    setPhoneValue(undefined); setNotes('')
+    setPhoneValue(undefined); setNotes(''); setGroothandel('')
     setBeursName(defaultBeursName()); setContactType('lead'); setAssignedTo('')
     // Keep aangemeldDoor — persists to last used
     setOpeningHours(null); setError(null)
@@ -225,6 +228,7 @@ export default function FormulierPage() {
       assigned_to:    assignedTo,
       status:         contactType,
       created_by:     aangemeldDoor,
+      groothandel:    groothandel || undefined,
       notes, source: buildSource(beursName, YEAR), channel: CHANNEL,
     }
     try {
@@ -235,39 +239,47 @@ export default function FormulierPage() {
       } catch {
         throw new Error('Geen verbinding met de server.')
       }
-      const data = (await res.json()) as { error?: string; id?: string; assigned_to?: string | null }
+      const data = (await res.json()) as { error?: string; id?: string; assigned_to?: string | null; label?: string | null; revenue?: number | null }
       if (!res.ok) throw new Error(data.error ?? 'Fout bij opslaan')
       if (!data.id) throw new Error('Server gaf geen contact-id terug')
       try { localStorage.setItem(SOURCE_STORAGE_KEY, beursName) } catch { /* ignore */ }
 
       const { status: formStatus, channel: _ch, ...contactFields } = body
       lateContactRef.current = data.id
-      setSavedContact({ ...contactFields, id: data.id, assigned_to: data.assigned_to ?? null, contact_type: formStatus || 'lead', opening_hours: openingHours })
+      setSavedContact({ ...contactFields, id: data.id, assigned_to: data.assigned_to ?? null, contact_type: formStatus || 'lead', opening_hours: openingHours, groothandel: groothandel })
       formRef.current.reset()
       setAddress(''); setCity(''); setPostcode(''); setCountry('Nederland')
-      setPhoneValue(undefined); setNotes(''); setOpeningHours(null)
+      setPhoneValue(undefined); setNotes(''); setGroothandel(''); setOpeningHours(null)
 
-      setPhase('enriching')
-      try {
-        const contactId = data.id
-        const deadline  = Date.now() + 40_000
-        const intervals = [1500, 2500, 2500, 3000, 3000, 3000, 4000, 4000, 4000, 5000]
-        let result: EnrichResult = { label: null, revenue: null, summary: null }
-        let assignedTo: string | null = null
-        for (const wait of intervals) {
-          if (Date.now() >= deadline) break
-          await new Promise(r => setTimeout(r, wait))
-          const pollRes  = await fetch(`/api/contacts/${contactId}`)
-          const pollData = await pollRes.json() as { label?: string | null; revenue?: number | null; assigned_to?: string | null }
-          if (pollData.assigned_to && !assignedTo) {
-            assignedTo = pollData.assigned_to
-            setSavedContact(prev => prev ? { ...prev, assigned_to: assignedTo } : prev)
+      // Enrichment runs inline on the server — check if it came back immediately
+      if (data.label) {
+        setEnrichResult({ label: data.label, revenue: data.revenue ?? null, summary: null })
+        if (data.assigned_to) setSavedContact(prev => prev ? { ...prev, assigned_to: data.assigned_to! } : prev)
+        setPhase('done')
+      } else {
+        // Fallback: poll for a few rounds in case enrichment is still settling
+        setPhase('enriching')
+        try {
+          const contactId = data.id
+          const deadline  = Date.now() + 20_000
+          const intervals = [2000, 3000, 3000, 4000, 4000, 4000]
+          let result: EnrichResult = { label: null, revenue: null, summary: null }
+          let assignedTo: string | null = null
+          for (const wait of intervals) {
+            if (Date.now() >= deadline) break
+            await new Promise(r => setTimeout(r, wait))
+            const pollRes  = await fetch(`/api/contacts/${contactId}`)
+            const pollData = await pollRes.json() as { label?: string | null; revenue?: number | null; assigned_to?: string | null }
+            if (pollData.assigned_to && !assignedTo) {
+              assignedTo = pollData.assigned_to
+              setSavedContact(prev => prev ? { ...prev, assigned_to: assignedTo } : prev)
+            }
+            if (pollData.label) { result = { label: pollData.label, revenue: pollData.revenue ?? null, summary: null }; break }
           }
-          if (pollData.label) { result = { label: pollData.label, revenue: pollData.revenue ?? null, summary: null }; break }
-        }
-        setEnrichResult(result)
-      } catch { /* ignore */ }
-      setPhase('done')
+          setEnrichResult(result)
+        } catch { /* ignore */ }
+        setPhase('done')
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Er is iets misgegaan')
       setPhase('idle')
@@ -275,6 +287,7 @@ export default function FormulierPage() {
   }
 
   const isSubmitting = phase === 'saving' || phase === 'enriching'
+  const canSubmit    = !isSubmitting && !loadingTeam && !!aangemeldDoor
   const showResult   = phase === 'enriching' || phase === 'done'
 
   return (
@@ -434,6 +447,22 @@ export default function FormulierPage() {
                 </TwoCol>
               </FieldSection>
 
+              <FieldSection title="Groothandel" icon={<Store size={13} />}>
+                <Field label="Groothandel leverancier">
+                  <input
+                    value={groothandel}
+                    onChange={e => setGroothandel(e.target.value)}
+                    list="groothandel-list-formulier"
+                    className="field-input"
+                    placeholder="Typ of kies groothandel…"
+                    autoComplete="off"
+                  />
+                  <datalist id="groothandel-list-formulier">
+                    {GROOTHANDEL_OPTIONS.map(g => <option key={g} value={g} />)}
+                  </datalist>
+                </Field>
+              </FieldSection>
+
               <FieldSection title="Notities" icon={<FileText size={13} />}>
                 <div className="relative">
                   <textarea
@@ -556,12 +585,14 @@ export default function FormulierPage() {
               <div className="sticky bottom-0 z-10 bg-surface border-t border-border px-5 py-3">
                 {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
                 <button
-                  type="submit" disabled={isSubmitting}
+                  type="submit" disabled={!canSubmit}
                   className="btn-primary w-full py-3.5"
                 >
                   {isSubmitting
                     ? <><Loader2 size={14} className="animate-spin" /> Opslaan…</>
-                    : 'Opslaan'
+                    : loadingTeam
+                      ? <><Loader2 size={14} className="animate-spin" /> Laden…</>
+                      : 'Opslaan'
                   }
                 </button>
               </div>
@@ -631,6 +662,12 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
           <Val label="Channel"      value="OFFLINE" mono />
         </TwoCol>
       </ResultSection>
+
+      {contact.groothandel && (
+        <ResultSection title="Groothandel" icon={<Store size={12} />}>
+          <Val label="Leverancier" value={contact.groothandel} />
+        </ResultSection>
+      )}
 
       <ResultSection title="Classificatie" icon={<Tag size={12} />}>
         <TwoCol>

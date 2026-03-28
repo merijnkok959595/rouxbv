@@ -27,12 +27,12 @@ export async function POST(req: Request) {
     const {
       company, first_name, last_name, email, phone,
       address, city, postcode, country,
-      assigned_to, status, notes, source, channel, opening_hours, created_by,
+      assigned_to, status, notes, source, channel, opening_hours, created_by, groothandel,
     } = body as {
       company: string; first_name?: string; last_name?: string; email?: string; phone?: string
       address?: string; city?: string; postcode?: string; country?: string
       assigned_to?: string; status?: string; notes?: string; source?: string; channel?: string
-      opening_hours?: unknown; created_by?: string
+      opening_hours?: unknown; created_by?: string; groothandel?: string
     }
 
     if (!company) return NextResponse.json({ error: 'company required' }, { status: 400 })
@@ -55,7 +55,11 @@ export async function POST(req: Request) {
         type:            status      || 'lead',
         source:          source      || null,
         channel:         channel     || 'OFFLINE',
-        custom_fields:   (notes || created_by) ? { ...(notes ? { intake_notes: notes } : {}), ...(created_by ? { created_by } : {}) } : null,
+        custom_fields:   {
+          created_by:    created_by  || null,
+          intake_notes:  notes       || null,
+          groothandel:   groothandel || null,
+        },
         opening_hours:   opening_hours || null,
       })
       .select('id, assigned_to')
@@ -109,6 +113,7 @@ export async function POST(req: Request) {
           customFields: buildCustomFields({
             klantType,
             klantSource,                      // "NHBEURS 2026" in custom field
+            groothandel:    groothandel || undefined,
             openingstijden: typeof opening_hours === 'string' ? opening_hours : undefined,
           }),
         }
@@ -161,8 +166,9 @@ export async function POST(req: Request) {
               ghl_synced:    true,
               custom_fields: {
                 ...existingCF,
-                intake_notes:   notes       || null,
-                created_by:     created_by  || null,
+                intake_notes:   notes        || null,
+                created_by:     created_by   || null,
+                groothandel:    groothandel  || null,
                 ghl_contact_id: ghlId,
               },
             })
@@ -173,21 +179,48 @@ export async function POST(req: Request) {
       }
     })()
 
-    // Fire-and-forget: route + enrich every new contact automatically
+    // Run routing + enrich in parallel, awaited so they complete before the serverless
+    // function is terminated (fire-and-forget is killed on Vercel after response is sent).
+    // Both have their own internal timeouts; we cap the combined wait at 55s.
     const base    = appBaseUrl()
     const payload = { contact_id: contact.id, organization_id: orgId }
-    void fetch(`${base}/api/routing/apply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).catch(() => {})
-    void fetch(`${base}/api/intelligence/enrich`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).catch(() => {})
 
-    return NextResponse.json({ id: contact.id, assigned_to: contact.assigned_to })
+    const run = (path: string) =>
+      fetch(`${base}${path}`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+        signal:  AbortSignal.timeout(55_000),
+      }).catch(e => console.error(`[formulier] ${path} failed:`, e))
+
+    const [routingRes, enrichRes] = await Promise.allSettled([run('/api/routing/apply'), run('/api/intelligence/enrich')])
+
+    // Pull assigned_to from routing if it updated
+    let finalAssignedTo = contact.assigned_to
+    if (routingRes.status === 'fulfilled' && routingRes.value) {
+      try {
+        const rd = await (routingRes.value as Response).json() as { assigned_to?: string | null }
+        if (rd.assigned_to) finalAssignedTo = rd.assigned_to
+      } catch { /* ignore */ }
+    }
+
+    // Pull label + revenue from enrich for immediate response (avoids first poll round-trip)
+    let enrichLabel: string | null   = null
+    let enrichRevenue: number | null = null
+    if (enrichRes.status === 'fulfilled' && enrichRes.value) {
+      try {
+        const ed = await (enrichRes.value as Response).json() as { label?: string | null; revenue?: number | null }
+        enrichLabel   = ed.label   ?? null
+        enrichRevenue = ed.revenue ?? null
+      } catch { /* ignore */ }
+    }
+
+    return NextResponse.json({
+      id:          contact.id,
+      assigned_to: finalAssignedTo,
+      label:       enrichLabel,
+      revenue:     enrichRevenue,
+    })
   } catch (err) {
     let msg = err instanceof Error ? err.message : String(err)
     if (msg === 'fetch failed' || msg.includes('fetch failed')) {
