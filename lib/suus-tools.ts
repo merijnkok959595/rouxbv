@@ -164,7 +164,7 @@ Bij bedrijfsnaam: geef altijd ook de stad mee. Als de stad ontbreekt: NIET aanro
 
       try {
         const parseResp = await oai.chat.completions.create({
-          model: 'gpt-4.1-mini',
+          model: 'gpt-4.1-nano',
           temperature: 0,
           response_format: { type: 'json_object' },
           messages: [{
