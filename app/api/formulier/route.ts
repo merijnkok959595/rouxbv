@@ -4,6 +4,9 @@ import { appBaseUrl } from '@/lib/app-base-url'
 import { contactCreate, contactUpdate, contactSearchAdvanced, buildCustomFields, noteCreate } from '@/lib/ghl-client'
 import { requireOrgId, isValidOrgId } from '@/lib/auth/resolveOrg'
 
+export const runtime     = 'nodejs'
+export const maxDuration = 60
+
 export async function POST(req: Request) {
   try {
     const body  = await req.json()

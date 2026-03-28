@@ -212,9 +212,9 @@ Return ONLY valid JSON:
 
 export async function POST(req: Request) {
   const body = await req.json()
-  const { contact_id, organization_id: bodyOrgId } = body
+  const { contact_id } = body
 
-  const orgId = bodyOrgId ?? resolveOrgId()
+  const orgId = resolveOrgId()
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!contact_id) return NextResponse.json({ error: 'contact_id required' }, { status: 400 })
 
