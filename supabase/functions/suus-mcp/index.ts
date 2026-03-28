@@ -71,64 +71,70 @@ function normalise(q: string): string {
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function tool_contact_zoek(args: Record<string, unknown>): Promise<string> {
-  const rawQuery  = normalise(String(args.query ?? ''))
-  const cityInput = String(args.city ?? '').trim()
+  // Accept bedrijfsnaam/plaatsnaam (new) or query/city (legacy)
+  const rawBedrijf = normalise(String(args.bedrijfsnaam ?? args.query ?? '').trim())
+  const rawStad    = String(args.plaatsnaam ?? args.city ?? '').trim()
 
-  // Step 1: nano parses query → {bedrijfsnaam, stad}
-  interface Parsed { bedrijfsnaam: string; stad: string | null }
-  let parsed: Parsed = { bedrijfsnaam: rawQuery, stad: cityInput || null }
+  if (!rawBedrijf) return JSON.stringify({ found: false, reden: 'Geen bedrijfsnaam opgegeven.' })
+
+  // ── Step 1: LLM parse — normalise name + extract city ──────────────────────
+  let bedrijf = rawBedrijf
+  let stad    = rawStad
   try {
     const r = await openai.chat.completions.create({
       model: 'gpt-4.1-nano', temperature: 0, response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: 'Parseer NL CRM-zoekopdracht → JSON {"bedrijfsnaam":string,"stad":string|null}. Getallen: drieenendertig=33. Strip beleefd taalgebruik.' },
-        { role: 'user',   content: `Query: "${rawQuery}"${cityInput ? `\nStad: "${cityInput}"` : ''}` },
+        { role: 'system', content: 'Normaliseer een Nederlandse bedrijfsnaam voor CRM-zoeken. Zet gesproken getallen om naar cijfers (drieëndertig→33, twaalf→12). Strip beleefd taalgebruik en STT-artefacten. Antwoord: {"bedrijf":"gecorrigeerde naam","stad":"plaatsnaam of null"}' },
+        { role: 'user',   content: `Bedrijfsnaam: "${rawBedrijf}"${rawStad ? `\nPlaatsnaam: "${rawStad}"` : ''}` },
       ],
     })
-    const p = JSON.parse(r.choices[0].message.content ?? '{}') as Partial<Parsed>
-    parsed = { bedrijfsnaam: p.bedrijfsnaam?.trim() || rawQuery, stad: p.stad?.trim() || cityInput || null }
-  } catch { /* fallback */ }
+    const p = JSON.parse(r.choices[0].message.content ?? '{}')
+    bedrijf = p.bedrijf?.trim()  || rawBedrijf
+    stad    = p.stad?.trim()     || rawStad
+  } catch { /* fallback to raw input */ }
 
-  const naam = parsed.bedrijfsnaam
-  const stad = parsed.stad ?? ''
-
-  // Step 2: Google Places → STT name correction
-  let normalizedName = naam
+  // ── Step 2: Google Places — STT correction + reference address ─────────────
+  let googleNaam  = bedrijf
+  let googleAdres = ''
+  let googleStad  = stad
   try {
-    const q = stad ? `${naam} ${stad}` : naam
+    const q = stad ? `${bedrijf} ${stad}` : bedrijf
     const gRes = await withTimeout(
       fetch('https://places.googleapis.com/v1/places:searchText', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': G_KEY(), 'X-Goog-FieldMask': 'places.displayName,places.addressComponents' },
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': G_KEY(), 'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.addressComponents' },
         body: JSON.stringify({ textQuery: q, languageCode: 'nl', regionCode: 'NL', maxResultCount: 3 }),
       }).then(r => r.json()) as Promise<{ places?: Array<Record<string, unknown>> }>,
-      4000, 'google-normalize',
+      4500, 'google',
     )
     const places = (gRes.places ?? []).slice(0, 3)
     if (places.length) {
       type AC = { longText?: string; types?: string[] }
       const candidates = places.map((p, i) => {
         const n = (p.displayName as { text?: string } | undefined)?.text ?? ''
-        const city = ((p.addressComponents ?? []) as AC[]).find(x => x.types?.includes('locality'))?.longText ?? ''
-        return `${i}: ${n}${city ? ` (${city})` : ''}`
+        return `${i}: ${n} — ${p.formattedAddress ?? ''}`
       }).join('\n')
       const m = await openai.chat.completions.create({
         model: 'gpt-4.1-nano', temperature: 0, response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: 'STT-correctie: kies meest plausibele Google match. JSON: {"match":true,"index":n,"corrected_name":"naam"} of {"match":false}.' },
-          { role: 'user',   content: `STT: "${naam}"\nGoogle:\n${candidates}` },
+          { role: 'system', content: 'STT-correctie: kies de beste Google-match voor het gezochte bedrijf. JSON: {"match":true,"index":0,"name":"officiële naam"} of {"match":false}.' },
+          { role: 'user',   content: `Gezocht: "${bedrijf}"${stad ? ` in ${stad}` : ''}\nGoogle:\n${candidates}` },
         ],
       })
-      let v: Record<string, unknown> = { match: false }
-      try { v = JSON.parse(m.choices[0].message.content ?? '{}') } catch { /* ignore */ }
+      const v = JSON.parse(m.choices[0].message.content ?? '{}')
       if (v.match) {
         const idx = Number(v.index ?? 0)
-        normalizedName = String(v.corrected_name ?? (places[idx]?.displayName as { text?: string } | undefined)?.text ?? naam).trim()
+        const p   = places[idx] ?? places[0]
+        const comps = (p.addressComponents ?? []) as AC[]
+        const get   = (t: string) => comps.find(c => c.types?.includes(t))?.longText ?? ''
+        googleNaam  = String(v.name ?? (p.displayName as { text?: string } | undefined)?.text ?? bedrijf).trim()
+        googleAdres = `${get('route')} ${get('street_number')}`.trim() || String(p.formattedAddress ?? '').split(',')[0]
+        googleStad  = get('locality') || get('administrative_area_level_2') || stad
       }
     }
-  } catch { /* continue */ }
+  } catch { /* continue with parsed name */ }
 
-  // Step 3: GHL 4× parallel
+  // ── Step 3: GHL 4× parallel fuzzy search ───────────────────────────────────
   const ghlQ = async (q: string): Promise<Array<Record<string, unknown>>> => {
     try { return ((await withTimeout(ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(q)}&limit=10`), 4000)).contacts ?? []) as Array<Record<string, unknown>> }
     catch { return [] }
@@ -138,39 +144,73 @@ async function tool_contact_zoek(args: Record<string, unknown>): Promise<string>
     catch { return [] }
   }
   const [r1, r2, r3, r4] = await withTimeout(
-    Promise.all([ghlQ(normalizedName), normalizedName !== naam ? ghlQ(naam) : Promise.resolve([]), ghlA(normalizedName), normalizedName !== naam ? ghlA(naam) : Promise.resolve([])]),
+    Promise.all([
+      ghlQ(googleNaam),
+      googleNaam !== bedrijf ? ghlQ(bedrijf) : Promise.resolve([]),
+      ghlA(googleNaam),
+      googleNaam !== bedrijf ? ghlA(bedrijf) : Promise.resolve([]),
+    ]),
     7000, 'ghl-parallel',
   )
 
   // Dedup
   const seen = new Set<string>()
-  let contacts: Array<Record<string, unknown>> = []
+  const all: Array<Record<string, unknown>> = []
   for (const list of [r1, r2, r3, r4]) {
     for (const c of list) {
       const id = String(c.id ?? '')
-      if (id && !seen.has(id)) { seen.add(id); contacts.push(c) }
+      if (id && !seen.has(id)) { seen.add(id); all.push(c) }
     }
   }
 
-  // Lenient city filter
-  if (stad && contacts.length > 0) {
-    const sl = stad.toLowerCase()
-    const filtered = contacts.filter(c => { const cl = String(c.city ?? '').toLowerCase(); return cl.includes(sl) || sl.includes(cl.slice(0, 4)) })
-    if (filtered.length > 0) contacts = filtered
+  // Lenient city pre-filter (keeps more candidates for LLM)
+  let candidates = all
+  if (googleStad && candidates.length > 1) {
+    const sl = googleStad.toLowerCase()
+    const filtered = candidates.filter(c => { const cl = String(c.city ?? '').toLowerCase(); return cl.includes(sl) || sl.includes(cl.slice(0, 4)) })
+    if (filtered.length > 0) candidates = filtered
   }
 
-  if (contacts.length === 0) {
-    return JSON.stringify({ count: 0, contacts: [], bron: 'niet gevonden', naam_gezocht: naam, stad_gezocht: stad || null, instructie: `Zeg: "Ik kan ${naam}${stad ? ` in ${stad}` : ''} niet vinden. Zullen we dit contact aanmaken?"` })
+  if (candidates.length === 0) {
+    return JSON.stringify({ found: false, bedrijf_gezocht: googleNaam, stad_gezocht: googleStad || null })
   }
+
+  // ── Step 4: LLM final pick — select the single best match ──────────────────
+  let best = candidates[0]
+  if (candidates.length > 1) {
+    try {
+      const rows = candidates.slice(0, 8).map((c, i) => {
+        const cn = [c.firstName, c.lastName].filter(Boolean).join(' ')
+        return `${i}: ${c.companyName ?? cn} | stad: ${c.city ?? '—'} | adres: ${c.address1 ?? '—'}`
+      }).join('\n')
+      const pick = await openai.chat.completions.create({
+        model: 'gpt-4.1-nano', temperature: 0, response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: 'Je bent CRM-assistent. Kies het BESTE overeenkomende contact. Let op bedrijfsnaam (fuzzy), stad en adres. Als geen enkel contact overeenkomt: {"match":false}. Anders: {"match":true,"index":0}' },
+          { role: 'user',   content: `Gezocht: "${googleNaam}"${googleStad ? ` in ${googleStad}` : ''}${googleAdres ? `\nGoogle adres: ${googleAdres}` : ''}\n\nKandidaten:\n${rows}` },
+        ],
+      })
+      const pv = JSON.parse(pick.choices[0].message.content ?? '{}')
+      if (!pv.match) return JSON.stringify({ found: false, bedrijf_gezocht: googleNaam, stad_gezocht: googleStad || null })
+      best = candidates[Number(pv.index ?? 0)] ?? candidates[0]
+    } catch { /* fallback to first */ }
+  }
+
+  const cn    = [best.firstName, best.lastName].filter(Boolean).join(' ')
+  const adres = [best.address1, best.postalCode, best.city].filter(Boolean).join(', ') || googleAdres || null
 
   return JSON.stringify({
-    count: contacts.length,
-    contacts: contacts.map(c => {
-      const cn = [c.firstName, c.lastName].filter(Boolean).join(' ')
-      return { contact_id: String(c.id ?? ''), naam: c.companyName ? `${c.companyName}${cn ? ` (${cn})` : ''}` : cn, bedrijf: c.companyName ?? null, stad: c.city ?? null, telefoon: c.phone ?? null, email: c.email ?? null, adres: [c.address1, c.postalCode, c.city].filter(Boolean).join(', ') || null }
-    }),
-    bron: normalizedName !== naam ? `CRM — gecorrigeerd "${naam}" → "${normalizedName}"` : 'CRM systeem',
-    instructie: contacts.length === 1 ? 'Gebruik dit contact_id direct.' : 'Vraag welke optie bedoeld wordt.',
+    found: true,
+    contact: {
+      contact_id: String(best.id ?? ''),
+      bedrijf:    String(best.companyName ?? cn ?? googleNaam),
+      naam:       cn || null,
+      adres,
+      stad:       String(best.city ?? googleStad ?? ''),
+      telefoon:   best.phone   ?? null,
+      email:      best.email   ?? null,
+    },
+    bron: googleNaam !== rawBedrijf ? `CRM (gecorrigeerd: "${rawBedrijf}" → "${googleNaam}")` : 'CRM',
   })
 }
 
@@ -286,7 +326,7 @@ async function tool_get_caller_info(args: Record<string, unknown>): Promise<stri
 // MCP TOOL DEFINITIONS
 // ══════════════════════════════════════════════════════════════════════════════
 const MCP_TOOLS = [
-  { name: 'contact_zoek', description: 'Zoek contacten in het CRM op bedrijfsnaam en stad. Roept automatisch Google Places aan voor STT-correctie. ALTIJD aanroepen als een bedrijfsnaam wordt genoemd.', inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Bedrijfsnaam (getallen in cijfers)' }, city: { type: 'string', description: 'Plaatsnaam (optioneel)' } }, required: ['query'] } },
+  { name: 'contact_zoek', description: 'Zoek een klant/bedrijf in het CRM. Roept Google Places aan voor STT-correctie en kiest automatisch het beste match. Geeft 1 contact terug (found:true) of niet gevonden (found:false). ALTIJD aanroepen zodra een bedrijfsnaam wordt genoemd.', inputSchema: { type: 'object', properties: { bedrijfsnaam: { type: 'string', description: 'Naam van het bedrijf — gesproken getallen omzetten naar cijfers (drieëndertig → 33)' }, plaatsnaam: { type: 'string', description: 'Stad of plaatsnaam (optioneel maar sterk aanbevolen)' } }, required: ['bedrijfsnaam'] } },
   { name: 'google_zoek_adres', description: 'Zoek het adres van een bedrijf via Google Places. Gebruik voor nieuwe contacten.', inputSchema: { type: 'object', properties: { bedrijfsnaam: { type: 'string' }, plaatsnaam: { type: 'string' } }, required: ['bedrijfsnaam'] } },
   { name: 'contact_briefing', description: 'Volledige briefing van een contact: gegevens, recente notities en open taken.', inputSchema: { type: 'object', properties: { contactId: { type: 'string', description: 'GHL contact ID' } }, required: ['contactId'] } },
   { name: 'contact_create', description: 'Maak een nieuw contact aan. Alleen companyName is verplicht. Vraag nooit om telefoon of email.', inputSchema: { type: 'object', properties: { companyName: { type: 'string' }, firstName: { type: 'string' }, city: { type: 'string' }, address1: { type: 'string' }, postalCode: { type: 'string' }, phone: { type: 'string' }, email: { type: 'string' }, type: { type: 'string', enum: ['lead', 'customer'] } }, required: ['companyName'] } },
@@ -359,9 +399,16 @@ Deno.serve(async (req: Request) => {
       case 'tools/call': {
         const params = (body.params ?? {}) as Record<string, unknown>
         const toolName = String(params.name ?? '')
-        const toolArgs = (params.arguments ?? {}) as Record<string, unknown>
+        // Retell may pass arguments as a pre-serialised JSON string — always parse
+        let rawArgs = params.arguments ?? {}
+        if (typeof rawArgs === 'string') {
+          try { rawArgs = JSON.parse(rawArgs) } catch { rawArgs = {} }
+        }
+        const toolArgs = rawArgs as Record<string, unknown>
         if (!toolName) return err(-32602, 'name is required')
+        console.log(`[suus-mcp] tools/call: ${toolName}`, JSON.stringify(toolArgs))
         const result = await callTool(toolName, toolArgs)
+        console.log(`[suus-mcp] result (${toolName}):`, result.slice(0, 200))
         return ok({ content: [{ type: 'text', text: result }] })
       }
 
