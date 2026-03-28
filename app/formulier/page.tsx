@@ -173,7 +173,14 @@ export default function FormulierPage() {
       }
       animFrameRef.current = requestAnimationFrame(tick)
 
-      const mr = new MediaRecorder(stream)
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : ''
+      const mr = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}) })
       audioChunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
       mr.onstop = async () => {
@@ -181,10 +188,12 @@ export default function FormulierPage() {
         audioCtxRef.current?.close(); audioCtxRef.current = null
         setRecBars([0.3, 0.5, 0.3])
         stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const actualType = mr.mimeType || mimeType || 'audio/webm'
+        const ext        = actualType.includes('mp4') ? 'mp4' : actualType.includes('ogg') ? 'ogg' : 'webm'
+        const blob = new Blob(audioChunksRef.current, { type: actualType })
         setTranscribing(true)
         try {
-          const fd = new FormData(); fd.append('audio', blob, 'recording.webm')
+          const fd = new FormData(); fd.append('audio', blob, `recording.${ext}`)
           const res  = await fetch('/api/suus/transcribe', { method: 'POST', body: fd })
           const data = await res.json() as { text?: string }
           if (data.text) setNotes(prev => prev ? `${prev} ${data.text}` : data.text!)
