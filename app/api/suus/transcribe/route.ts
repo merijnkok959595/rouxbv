@@ -5,7 +5,7 @@ import { toFile }       from 'openai'
 export const runtime     = 'nodejs'
 export const maxDuration = 30
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() })
 
 export async function POST(req: Request) {
   try {

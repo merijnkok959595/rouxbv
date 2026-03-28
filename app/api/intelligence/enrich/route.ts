@@ -7,7 +7,7 @@ import { contactUpdate as ghlContactUpdate, buildCustomFields } from '@/lib/ghl-
 
 export const runtime = 'nodejs'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() })
 
 /** Web search enrichment via OpenAI */
 async function enrichViaWebSearch(company: string, city: string, website?: string): Promise<Record<string, unknown>> {

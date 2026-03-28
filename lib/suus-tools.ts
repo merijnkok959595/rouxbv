@@ -21,7 +21,7 @@ import {
   type GHLContact, type GHLContactInput, type GHLTask,
 } from '@/lib/ghl-client'
 
-const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() })
 
 const ORG_ID = () => process.env.ORGANIZATION_ID?.trim() ?? ''
 
