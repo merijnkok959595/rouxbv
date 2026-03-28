@@ -112,9 +112,9 @@ async function contactZoek(rawQuery: string, cityInput: string): Promise<Record<
           'X-Goog-Api-Key': G_KEY(),
           'X-Goog-FieldMask': 'places.displayName,places.addressComponents',
         },
-        body: JSON.stringify({ textQuery: searchQ, languageCode: 'nl', regionCode: 'NL', maxResultCount: 5 }),
+        body: JSON.stringify({ textQuery: searchQ, languageCode: 'nl', regionCode: 'NL', maxResultCount: 3 }),
       }).then(r => r.json()) as Promise<{ places?: Array<Record<string, unknown>> }>,
-      6000, 'google-normalize',
+      4000, 'google-normalize',
     )
     const places = (gRes.places ?? []).slice(0, 5)
     if (places.length) {
@@ -147,13 +147,13 @@ async function contactZoek(rawQuery: string, cityInput: string): Promise<Record<
   // ── Step 3: GHL 4× parallel search ────────────────────────────────────────
   const ghlQuery = async (q: string): Promise<Array<Record<string, unknown>>> => {
     try {
-      const r = await withTimeout(ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(q)}&limit=10`), 6000, 'ghl-query')
+      const r = await withTimeout(ghl(`/contacts/?locationId=${GHL_LOC()}&query=${encodeURIComponent(q)}&limit=10`), 4000, 'ghl-query')
       return (r.contacts ?? []) as Array<Record<string, unknown>>
     } catch { return [] }
   }
   const ghlAdvanced = async (q: string): Promise<Array<Record<string, unknown>>> => {
     try {
-      const r = await withTimeout(ghl('/contacts/search/duplicate', { method: 'POST', body: JSON.stringify({ locationId: GHL_LOC(), name: q }) }), 5000, 'ghl-advanced')
+      const r = await withTimeout(ghl('/contacts/search/duplicate', { method: 'POST', body: JSON.stringify({ locationId: GHL_LOC(), name: q }) }), 4000, 'ghl-advanced')
       return (r.contacts ?? []) as Array<Record<string, unknown>>
     } catch { return [] }
   }
@@ -165,7 +165,7 @@ async function contactZoek(rawQuery: string, cityInput: string): Promise<Record<
       ghlAdvanced(normalizedName),
       normalizedName !== naam ? ghlAdvanced(naam) : Promise.resolve([]),
     ]),
-    9000, 'ghl-parallel',
+    7000, 'ghl-parallel',
   )
 
   // dedup by id
@@ -247,18 +247,18 @@ Deno.serve(async (req: Request) => {
     const query = String(body.args?.query ?? '').trim()
     const city  = String(body.args?.city  ?? '').trim()
 
-    if (!query) return Response.json({ error: 'query is required' }, { status: 400 })
+    if (!query) return Response.json({ result: JSON.stringify({ count: 0, contacts: [], instructie: 'query is required' }) }, { status: 400 })
 
     console.log(`[contact-zoek] query="${query}" city="${city}"`)
-    const result = await contactZoek(query, city)
-    console.log(`[contact-zoek] result count=${result.count}`)
+    const data = await contactZoek(query, city)
+    console.log(`[contact-zoek] result count=${data.count}`)
 
-    return Response.json(result)
+    // Retell webhook tools expect { result: string }
+    return Response.json({ result: JSON.stringify(data) })
   } catch (err) {
     console.error('[contact-zoek] error:', err)
     return Response.json({
-      count: 0, contacts: [], bron: 'fout',
-      instructie: 'Er is iets misgegaan, probeer opnieuw.',
+      result: JSON.stringify({ count: 0, contacts: [], bron: 'fout', instructie: 'Er is iets misgegaan, probeer opnieuw.' })
     }, { status: 500 })
   }
 })
