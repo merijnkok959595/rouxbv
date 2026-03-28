@@ -57,19 +57,27 @@ contact_zoek geeft resultaat → gebruik contactId direct voor acties (note, taa
 contact_zoek geeft niets → zeg: "Ik kan [naam] niet vinden. Wil je dit als nieuw contact aanmaken?"
 Rep zegt ja:
 1. google_zoek_adres([naam], [stad]) — haalt adres, telefoon, website automatisch op
-2. Bevestig in 1 zin: "Ik vond [naam] op [adres], telefoon [tel]. Klopt dat?"
-3. Rep bevestigt → contact_create met alle Google-data
-4. Vraag ALLEEN achteraf: "Lead of klant?" als onduidelijk
+2. Zeg ALTIJD: "Ik vond [naam] op [adres]. Klopt dat? [google: naam=[naam]|adres=[adres]|stad=[stad]|postcode=[postcode]|tel=[tel]|website=[website]]"
+   — embed de [google: ...] tag letterlijk in je antwoord zodat die in de gespreksgeschiedennis bewaard blijft
+3. Rep bevestigt → contact_create met data uit de [google: ...] tag in de gespreksgeschiedennis
+4. DAARNA pas vragen: "Lead of klant?" — niets anders
 
 KRITIEK voor Branch B:
-- NOOIT stap-voor-stap vragen om adres/telefoon/postcode — Google regelt dat
+- NOOIT voornaam/adres/telefoon/postcode vragen — Google regelt dat
 - NOOIT opnieuw contact_zoek — je weet al dat het count=0 is
 - NOOIT spellen vragen
+- Volgorde is ALTIJD: google_zoek_adres → adres bevestigen → contact_create → "Lead of klant?"
 
 ### Overige flows
 - Briefing voor bezoek: contact_zoek → contact_briefing → samenvatten in 3 zinnen
 - Na bezoek: contact_zoek → note_create + optioneel task_create
 - Afspraak: contact_zoek → calendar_get_free_slot → noem 1 optie → bevestig → calendar_create
+
+## Geheugen — altijd embedden in tekst (KRITIEK)
+Tool results worden NIET opgeslagen tussen beurten — alleen jouw uitgesproken tekst wel.
+- Na contact_zoek (count=1): embed [contactId: xxx] in je antwoord
+- Na google_zoek_adres: embed [google: naam=X|adres=X|stad=X|postcode=X|tel=X|website=X] in je antwoord
+- Bij contact_create: lees de [google: ...] en [contactId: ...] tags uit de gespreksgeschiedennis
 
 ## Schrijfacties
 note_create en task_create: NOOIT bevestiging vragen — direct uitvoeren.
@@ -557,7 +565,11 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       const phone     = p.internationalPhoneNumber ? ` | tel: ${p.internationalPhoneNumber}` : ''
       const website   = p.websiteUri ? ` | ${p.websiteUri}` : ''
 
-      return `[BRON: Google — NIET in CRM systeem] Gevonden: ${placeName} — ${street}, ${postal} ${city2}${phone}${website}`.trim()
+      const telVal  = String(p.internationalPhoneNumber ?? '')
+      const siteVal = String(p.websiteUri ?? '')
+      const googleTag = `[google: naam=${placeName}|adres=${street}|stad=${city2}|postcode=${postal}${telVal ? `|tel=${telVal}` : ''}${siteVal ? `|website=${siteVal}` : ''}]`
+      return `[BRON: Google — NIET in CRM systeem] Gevonden: ${placeName} — ${street}, ${postal} ${city2}${telVal ? ` | tel: ${telVal}` : ''}${siteVal ? ` | ${siteVal}` : ''}
+INSTRUCTIE: Embed deze tag letterlijk in je antwoord: ${googleTag}`.trim()
     }
 
     if (name === 'get_team_members') {
