@@ -31,7 +31,7 @@ type SavedContact = {
   address: string; city: string; postcode: string; country: string
   first_name: string; last_name: string; phone: string; email: string
   contact_type: string; notes: string; opening_hours: PlaceResult['opening_hours']
-  groothandel: string
+  groothandel: string; created_by: string
 }
 type TeamMember = { id: string; naam: string; color: string | null; functie?: string | null }
 type Phase = 'idle' | 'saving' | 'enriching' | 'done'
@@ -246,7 +246,7 @@ export default function FormulierPage() {
 
       const { status: formStatus, channel: _ch, ...contactFields } = body
       lateContactRef.current = data.id
-      setSavedContact({ ...contactFields, id: data.id, assigned_to: data.assigned_to ?? null, contact_type: formStatus || 'lead', opening_hours: openingHours, groothandel: groothandel })
+      setSavedContact({ ...contactFields, id: data.id, assigned_to: data.assigned_to ?? null, contact_type: formStatus || 'lead', opening_hours: openingHours, groothandel, created_by: aangemeldDoor })
       formRef.current.reset()
       setAddress(''); setCity(''); setPostcode(''); setCountry('Nederland')
       setPhoneValue(undefined); setNotes(''); setGroothandel(''); setOpeningHours(null)
@@ -615,7 +615,15 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
   const assignedMember = contact.assigned_to
     ? teamMembers.find(m => m.naam === contact.assigned_to || m.id === contact.assigned_to) ?? null
     : null
-  const mc = assignedMember?.color ?? null
+  const creatorMember  = contact.created_by
+    ? teamMembers.find(m => m.naam === contact.created_by || m.id === contact.created_by) ?? null
+    : null
+  const mc  = assignedMember?.color ?? null
+  const cc  = creatorMember?.color  ?? null
+  // Label chip uses creator's color when available, else falls back to semantic A/B/C/D color
+  const labelBg     = cc ? `${cc}18` : (lm?.bg      ?? 'var(--active)')
+  const labelColor  = cc ? cc        : (lm?.text     ?? 'var(--text)')
+  const labelBorder = cc ? `${cc}40` : (lm?.border   ?? 'var(--border)')
 
   return (
     <div className="bg-surface border border-border rounded-xl overflow-hidden mb-5">
@@ -671,14 +679,14 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
 
       <ResultSection title="Classificatie" icon={<Tag size={12} />}>
         <TwoCol>
-          {/* Label */}
+          {/* Label — chip color uses creator's team color */}
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold text-muted">Label</span>
             {enriching
               ? <div className="h-[22px] w-9 rounded bg-border animate-pulse" />
-              : lm && enrich?.label
+              : enrich?.label
                 ? <span className="self-start text-xs font-bold px-2.5 py-1 rounded"
-                    style={{ backgroundColor: lm.bg, color: lm.text, border: `1px solid ${lm.border}`, fontFamily: MONO, letterSpacing: '0.08em' }}>
+                    style={{ backgroundColor: labelBg, color: labelColor, border: `1px solid ${labelBorder}`, fontFamily: MONO, letterSpacing: '0.08em' }}>
                     {enrich.label}
                   </span>
                 : <span className="text-xs text-muted">—</span>
@@ -698,20 +706,34 @@ function SuccessCard({ phase, contact, enrich, onStartOver, teamMembers }: {
           </div>
         </TwoCol>
 
-        {/* Toegewezen aan */}
-        <div className="flex flex-col gap-1 mt-1.5">
-          <span className="text-xs font-semibold text-muted">Toegewezen aan</span>
-          {enriching
-            ? <div className="h-[22px] w-24 rounded-full bg-border animate-pulse" />
-            : contact.assigned_to
+        <TwoCol>
+          {/* Aangemaakt door */}
+          <div className="flex flex-col gap-1 mt-1.5">
+            <span className="text-xs font-semibold text-muted">Aangemaakt door</span>
+            {contact.created_by
               ? <span className="self-start flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full tracking-wide uppercase"
-                  style={{ backgroundColor: mc ? `${mc}18` : 'var(--active)', color: mc ?? 'var(--text)', border: `1px solid ${mc ? `${mc}40` : 'var(--border)'}` }}>
-                  {mc && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: mc }} />}
-                  {contact.assigned_to}
+                  style={{ backgroundColor: cc ? `${cc}18` : 'var(--active)', color: cc ?? 'var(--text)', border: `1px solid ${cc ? `${cc}40` : 'var(--border)'}` }}>
+                  {cc && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: cc }} />}
+                  {contact.created_by}
                 </span>
-              : <span className="text-xs text-muted">wordt bepaald…</span>
-          }
-        </div>
+              : <span className="text-xs text-muted">—</span>
+            }
+          </div>
+          {/* Toegewezen aan */}
+          <div className="flex flex-col gap-1 mt-1.5">
+            <span className="text-xs font-semibold text-muted">Toegewezen aan</span>
+            {enriching
+              ? <div className="h-[22px] w-24 rounded-full bg-border animate-pulse" />
+              : contact.assigned_to
+                ? <span className="self-start flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full tracking-wide uppercase"
+                    style={{ backgroundColor: mc ? `${mc}18` : 'var(--active)', color: mc ?? 'var(--text)', border: `1px solid ${mc ? `${mc}40` : 'var(--border)'}` }}>
+                    {mc && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: mc }} />}
+                    {contact.assigned_to}
+                  </span>
+                : <span className="text-xs text-muted">—</span>
+            }
+          </div>
+        </TwoCol>
 
         {enrich?.summary && (
           <p className="text-[13px] leading-snug text-muted italic mt-1.5">{enrich.summary}</p>
