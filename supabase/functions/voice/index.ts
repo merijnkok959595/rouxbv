@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Register call — employee context resolved in retell-llm via call.from_number
+    const firstname = employee ? (employee.naam as string).split(' ')[0] : ''
     const retellRes = await fetch('https://api.retellai.com/v2/register-phone-call', {
       method:  'POST',
       headers: {
@@ -81,6 +81,10 @@ Deno.serve(async (req) => {
         to_number:   '+' + to.replace('whatsapp:', '').replace(/^\+/, '').replace(/\D/g, ''),
         direction:   'inbound',
         metadata:    { organization_id: ORG_ID },
+        retell_llm_dynamic_variables: {
+          firstname:   firstname,
+          caller_name: employee ? (employee.naam as string) : '',
+        },
       }),
     })
 
