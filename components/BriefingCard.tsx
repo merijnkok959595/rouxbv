@@ -27,19 +27,31 @@ export interface BriefingData {
     assignedTo: string | null
     color:      string | null
   } | null
-  rawNotes:        { createdAt: string; body: string }[]
-  rawTasks:        { dueDate: string; title: string; body?: string }[]
-  rawAppointments: { startTime: string; title: string }[]
+  rawNotes:        { createdAt: string | number | null | undefined; body: string }[]
+  rawTasks:        { dueDate: string | number | null | undefined; title: string; body?: string }[]
+  rawAppointments: { startTime: string | number | null | undefined; title: string }[]
   stats: { notes: number; openTasks: number; appointments: number }
 }
 
-function nlDate(iso: string) {
-  try { return new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', timeZone: 'Europe/Amsterdam' }) }
-  catch { return iso }
+function parseDate(val: string | number | null | undefined): Date | null {
+  if (val == null || val === '') return null
+  const num = typeof val === 'number' ? val : /^\d+$/.test(String(val)) ? Number(val) : NaN
+  if (!isNaN(num)) {
+    const d = new Date(num > 1e10 ? num : num * 1000)
+    return isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(val as string)
+  return isNaN(d.getTime()) ? null : d
 }
-function nlTime(iso: string) {
-  try { return new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' }) }
-  catch { return '' }
+function nlDate(val: string | number | null | undefined): string {
+  const d = parseDate(val)
+  if (!d) return '—'
+  return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', timeZone: 'Europe/Amsterdam' })
+}
+function nlTime(val: string | number | null | undefined): string {
+  const d = parseDate(val)
+  if (!d) return ''
+  return d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })
 }
 
 function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
