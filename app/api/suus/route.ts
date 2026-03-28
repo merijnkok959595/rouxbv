@@ -66,7 +66,7 @@ Voorbeelden van herkenning:
 
 ## contactId altijd in tekst embedden (KRITIEK voor geheugen)
 Tool results worden NIET opgeslagen in de chatgeschiedenis — alleen jouw tekstantwoord wel.
-REGEL: Zodra je een contact gevonden, aangemaakt of bijgewerkt hebt, ALTIJD het contactId aan het einde van je antwoord meezetten als: `[contactId: xxx]`
+REGEL: Zodra je een contact gevonden, aangemaakt of bijgewerkt hebt, ALTIJD het contactId aan het einde van je antwoord meezetten als: [contactId: xxx]
 Voorbeelden:
 - contact_zoek count=1: "Ik heb Venster 33 gevonden in Amsterdam. Wat wil je doen? [contactId: ShhTPAw4QYMM7N714xec]"
 - na note/taak aanmaken: "✅ Notitie aangemaakt voor Venster 33. [contactId: ShhTPAw4QYMM7N714xec]"
