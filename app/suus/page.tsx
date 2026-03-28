@@ -117,13 +117,17 @@ export default function SuusPage() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
 
   // Scroll to bottom when keyboard opens on mobile (visualViewport resize)
+  // Skip during active calls — user may be scrolling up to read transcript
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const onResize = () => { bottomRef.current?.scrollIntoView({ behavior: 'instant' }) }
+    const onResize = () => {
+      if (calling) return  // don't hijack scroll during voice call
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+    }
     vv.addEventListener('resize', onResize)
     return () => vv.removeEventListener('resize', onResize)
-  }, [])
+  }, [calling])
 
   useEffect(() => {
     if (!attachOpen) return
@@ -380,7 +384,7 @@ export default function SuusPage() {
 
   /* ── Render ───────────────────────────────────────────────────── */
   return (
-    <div className="flex flex-col bg-bg overflow-x-hidden" style={{ height: 'calc(100dvh - var(--nav-height, 80px))' }}>
+    <div className="flex flex-col bg-bg overflow-x-hidden" style={{ height: 'calc(100svh - var(--nav-height, 80px))' }}>
 
 
       {/* ── Contact form modal ───────────────────────────────────── */}
