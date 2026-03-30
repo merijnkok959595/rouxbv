@@ -303,7 +303,7 @@ export default function FormulierPage() {
   return (
     <div className="min-h-screen bg-bg">
       <div className="flex justify-center">
-        <div className="w-full max-w-[520px] px-4 pt-8 pb-safe-bottom pb-16">
+        <div className="w-full max-w-[520px] px-4 pt-8 pb-[max(64px,env(safe-area-inset-bottom))]">
 
           {/* Header */}
           <div className="text-center mb-5">
@@ -517,7 +517,7 @@ export default function FormulierPage() {
               </FieldSection>
 
               <FieldSection title="Herkomst" icon={<Flag size={13} />}>
-                <div className="grid grid-cols-[1fr_auto_1fr] max-[420px]:grid-cols-1 gap-3">
+                <div className="grid grid-cols-[1fr_auto_1fr] max-[480px]:grid-cols-1 gap-3">
                   <Field label="Beurs">
                     <select value={beursName} onChange={e => persistBeursName(e.target.value)}
                       className="field-input cursor-pointer">

@@ -81,7 +81,8 @@
 
 /* ── Utilities ───────────────────────────────────────────────────── */
 @layer utilities {
-  .safe-bottom { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  .safe-bottom    { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  .pb-safe-bottom { padding-bottom: max(64px, env(safe-area-inset-bottom)); }
 }
 
 /* ── NavBar (global — rendered in layout) ────────────────────────── */
