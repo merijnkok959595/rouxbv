@@ -71,7 +71,7 @@ export default function FormulierPage() {
   const [recBars,        setRecBars]        = useState([0.3, 0.5, 0.3])
 
   useEffect(() => {
-    const handleOutside = (e: MouseEvent) => {
+    const handleOutside = (e: PointerEvent) => {
       if (creatorRef.current && !creatorRef.current.contains(e.target as Node)) {
         setCreatorOpen(false)
       }
@@ -79,8 +79,8 @@ export default function FormulierPage() {
         setAssignedOpen(false)
       }
     }
-    document.addEventListener('mousedown', handleOutside)
-    return () => document.removeEventListener('mousedown', handleOutside)
+    document.addEventListener('pointerdown', handleOutside)
+    return () => document.removeEventListener('pointerdown', handleOutside)
   }, [])
 
   useEffect(() => {

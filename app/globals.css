@@ -181,6 +181,9 @@
 .pac-item {
   padding: 8px 10px; font-size: 13px; line-height: 1.35;
   color: var(--text); border-top: 1px solid var(--border);
+  touch-action: manipulation; cursor: pointer;
 }
 .pac-item:first-child { border-top: none; }
 .pac-item:hover, .pac-item-selected { background: var(--active); }
+/* Ensure pac-container doesn't get hidden by iOS blur-before-tap */
+.pac-container:after { display: none; }
