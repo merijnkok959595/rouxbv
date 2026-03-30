@@ -313,11 +313,14 @@ async function tool_get_team_members(): Promise<string> {
 
 async function tool_get_caller_info(args: Record<string, unknown>): Promise<string> {
   const from = String(args.from_number ?? '').replace(/\D/g, '')
-  if (!from) return 'Geen telefoonnummer opgegeven.'
+  // Web calls have no from_number — return a generic valid response so the flow continues
+  if (!from) {
+    return JSON.stringify({ naam: '', voornaam: '', functie: null, ghl_user_id: null, calendar_id: null, instructie: 'Hoi! Met welke klant kan ik je helpen?' })
+  }
   const { data } = await adminSb().from('team_members').select('naam,functie,ghl_user_id,calendar_id,phone').eq('organization_id', ORG_ID()).eq('active', true).not('ghl_user_id', 'is', null)
-  if (!data?.length) return 'Geen medewerkers gevonden.'
+  if (!data?.length) return JSON.stringify({ naam: '', voornaam: '', functie: null, ghl_user_id: null, calendar_id: null, instructie: 'Hoi! Met welke klant kan ik je helpen?' })
   const emp = data.find(m => { const mp = (m.phone ?? '').replace(/\D/g, ''); return mp && (mp === from || mp.slice(-9) === from.slice(-9)) })
-  if (!emp) return 'Niet-geautoriseerd nummer.'
+  if (!emp) return JSON.stringify({ naam: '', voornaam: '', functie: null, ghl_user_id: null, calendar_id: null, instructie: 'Hoi! Met welke klant kan ik je helpen?' })
   const voornaam = emp.naam.split(' ')[0]
   return JSON.stringify({ naam: emp.naam, voornaam, functie: emp.functie, ghl_user_id: emp.ghl_user_id, calendar_id: emp.calendar_id ?? null, instructie: `Begroet: "Hoi ${voornaam}!"` })
 }
